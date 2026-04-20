@@ -1,6 +1,6 @@
 import { Capacitor } from '@capacitor/core';
 import { SplashScreen } from '@capacitor/splash-screen';
-import { StatusBar } from '@capacitor/status-bar';
+import { StatusBar, Style } from '@capacitor/status-bar';
 import { App } from '@capacitor/app';
 import { useEffect } from 'react';
 
@@ -12,8 +12,8 @@ export const useCapacitor = () => {
         await SplashScreen.hide();
         
         // Set status bar style
-        await StatusBar.setStyle({ style: 'LIGHT' });
-        await StatusBar.setBackgroundColor({ color: '#1e40af' });
+        await StatusBar.setStyle({ style: Style.Light });
+        await StatusBar.setBackgroundColor({ color: '#003F7F' });
         
         // Handle app state changes
         App.addListener('appStateChange', ({ isActive }) => {

@@ -1,27 +1,23 @@
 import { createBrowserRouter } from "react-router";
-import Login from "./pages/Login";
-import Dashboard from "./pages/Dashboard";
-import Bills from "./pages/Bills";
+import Home from "./pages/Home";
+import MobileLayout from "./components/MobileLayout";
+import BillStatement from "./pages/BillStatement";
 import Payment from "./pages/Payment";
 import Complaints from "./pages/Complaints";
-import MobileLayout from "./components/MobileLayout";
+import Receipts from "./pages/Receipts";
 
 export const router = createBrowserRouter([
   {
     path: "/",
-    Component: Login,
+    Component: Home,
   },
   {
     path: "/",
     Component: MobileLayout,
     children: [
       {
-        path: "dashboard",
-        Component: Dashboard,
-      },
-      {
-        path: "bills",
-        Component: Bills,
+        path: "statement",
+        Component: BillStatement,
       },
       {
         path: "payment",
@@ -30,6 +26,10 @@ export const router = createBrowserRouter([
       {
         path: "complaints",
         Component: Complaints,
+      },
+      {
+        path: "receipts",
+        Component: Receipts,
       },
     ],
   },
