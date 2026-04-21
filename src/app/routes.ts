@@ -1,5 +1,6 @@
-import { createBrowserRouter } from "react-router";
+import { createBrowserRouter, redirect } from "react-router";
 import Home from "./pages/Home";
+import Onboarding from "./pages/Onboarding";
 import MobileLayout from "./components/MobileLayout";
 import BillStatement from "./pages/BillStatement";
 import Payment from "./pages/Payment";
@@ -8,7 +9,17 @@ import Receipts from "./pages/Receipts";
 
 export const router = createBrowserRouter([
   {
+    path: "/onboarding",
+    Component: Onboarding,
+  },
+  {
     path: "/",
+    loader: () => {
+      if (!localStorage.getItem("dawasa_onboarded")) {
+        return redirect("/onboarding");
+      }
+      return null;
+    },
     Component: Home,
   },
   {

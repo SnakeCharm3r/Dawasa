@@ -1,21 +1,29 @@
 # Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# Preserve line numbers for crash reporting
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# Capacitor bridge — must not be obfuscated
+-keep class com.getcapacitor.** { *; }
+-keep class com.getcapacitor.annotation.** { *; }
+-keepclassmembers class * extends com.getcapacitor.Plugin {
+    @com.getcapacitor.annotation.CapacitorPlugin <fields>;
+    @com.getcapacitor.PluginMethod public *;
+}
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# App main activity
+-keep class com.dawasa.mobileapp.** { *; }
+
+# WebView JavaScript interface
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}
+
+# AndroidX / Appcompat
+-keep class androidx.** { *; }
+-dontwarn androidx.**
+
+# Cordova plugins (Capacitor uses these internally)
+-keep class org.apache.cordova.** { *; }
+-dontwarn org.apache.cordova.**
