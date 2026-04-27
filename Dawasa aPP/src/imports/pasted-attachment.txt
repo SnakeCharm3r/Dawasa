@@ -1,0 +1,249 @@
+Build a **water billing mobile/web application** that allows customers of the Dar es Salaam water utility system to view their water bills and payment status using their **IP number (Account Number)**.
+
+The application must use the following technology stack:
+
+Frontend:
+React (Vite or Next.js)
+
+Backend:
+Laravel API (RESTful)
+
+Database:
+MySQL
+
+External Integration:
+DAWASA Billing API
+
+The application must fetch customer billing information from the DAWASA API using the customer's **IP number**.
+
+---
+
+SYSTEM ROLES
+
+1. Customer
+   A registered customer who owns the water account.
+
+Login credentials:
+Username = IP Number
+Password = user generated
+
+Capabilities:
+
+* Login to the system
+* View customer profile
+* View current balance
+* View billing history
+* View meter readings
+* View payment history
+* View control number for bill payment
+* Receive bill notifications
+
+---
+
+2. Tenant / Non-Account User
+
+A tenant does not own the account but wants to check the bill status.
+
+Capabilities:
+
+* No login required
+* Enter IP number
+* Fetch account balance
+* View latest bill
+* View pending amount
+* View control number for payment
+
+Restrictions:
+
+* Cannot view full billing history
+* Cannot update account
+* Cannot change profile
+
+---
+
+AUTHENTICATION
+
+Customer authentication must use:
+
+Laravel Sanctum or JWT
+
+Login fields:
+IP Number
+Password
+
+Registration flow:
+
+User enters:
+IP Number
+Phone Number
+Email
+Password
+
+System verifies the IP number against the DAWASA API.
+
+If valid:
+Create account and allow login.
+
+---
+
+APPLICATION FEATURES
+
+Customer Dashboard
+
+Display:
+Customer Name
+Account Number (IP Number)
+Meter Number
+Current Balance
+Last Bill Amount
+Last Payment Date
+Control Number
+
+---
+
+Billing History
+
+Table columns:
+Date
+Opening Balance
+Debit (Bill)
+Credit (Payment)
+Closing Balance
+Bill Reference
+Meter Reading From
+Meter Reading To
+
+---
+
+Tenant Quick Check Page
+
+Simple interface:
+
+Input:
+IP Number
+
+Output:
+Customer Name
+Outstanding Balance
+Latest Bill
+Control Number
+Last Meter Reading
+
+---
+
+API STRUCTURE (Laravel)
+
+Endpoints:
+
+POST /api/login
+
+POST /api/register
+
+GET /api/customer/{ip_number}
+
+GET /api/customer/{ip_number}/bills
+
+GET /api/customer/{ip_number}/payments
+
+GET /api/tenant/check/{ip_number}
+
+---
+
+DAWASA API INTEGRATION
+
+Backend must call external API:
+
+GET /dawasa/billing/{ip_number}
+
+Response example:
+
+{
+customer_name,
+account_number,
+meter_number,
+current_balance,
+control_number,
+bills[],
+payments[]
+}
+
+Backend should cache results to reduce API calls.
+
+---
+
+REACT FRONTEND PAGES
+
+1. Login Page
+2. Registration Page
+3. Customer Dashboard
+4. Billing History Page
+5. Payment History Page
+6. Tenant Bill Check Page
+7. Profile Page
+
+---
+
+UI DESIGN REQUIREMENTS
+
+Clean government service design.
+
+Components:
+
+Top navigation
+Customer dashboard cards
+Billing table
+Balance indicator
+Payment button
+Notification banner
+
+---
+
+SECURITY REQUIREMENTS
+
+Rate limit tenant lookups.
+
+Protect customer routes using authentication middleware.
+
+Encrypt passwords using bcrypt.
+
+Sanitize all API inputs.
+
+---
+
+OPTIONAL FEATURES
+
+Push notifications when a new bill is generated.
+
+SMS alerts for outstanding balances.
+
+Water consumption analytics graph.
+
+Payment integration with:
+M-Pesa
+Tigo Pesa
+Airtel Money
+Banks
+
+---
+
+PROJECT STRUCTURE
+
+Frontend:
+
+/src
+/components
+/pages
+/services
+/context
+/hooks
+
+Backend:
+
+app/Http/Controllers
+app/Models
+routes/api.php
+app/Services/DawasaAPIService.php
+
+---
+
+The system must be modular, scalable, and designed to support thousands of concurrent users across the city.

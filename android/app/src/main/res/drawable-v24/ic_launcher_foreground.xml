@@ -1,0 +1,15 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportHeight="108"
+    android:viewportWidth="108">
+    <!-- Water droplet shape centered in safe zone (within 72dp safe area) -->
+    <path
+        android:fillColor="#00AEEF"
+        android:pathData="M54,22 C54,22 30,50 30,63 C30,76.8 40.7,88 54,88 C67.3,88 78,76.8 78,63 C78,50 54,22 54,22 Z" />
+    <!-- Inner highlight for depth -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.35"
+        android:pathData="M46,52 C43,56 41,60 41,63 C41,65 42,67 43.5,68.5 C44,60 46,54 50,50 Z" />
+</vector>
