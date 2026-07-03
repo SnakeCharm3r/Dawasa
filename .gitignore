@@ -4,3 +4,16 @@ FX_Proj
 Customer_Feedback
 Dawasa_aPP
 eDocs
+
+# Unrelated projects — each has its own repo
+AgricultureApp/
+HMS/
+POS_Shops/
+ProjectTracker/
+ShopKeeper/
+DAWASA mobile/
+Dawasa aPP/
+
+# Zip archives
+*.zip
+*.tar.gz
