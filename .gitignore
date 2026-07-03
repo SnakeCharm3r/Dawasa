@@ -1,6 +1,22 @@
-node_modules
-Air_BnB
-FX_Proj
-Customer_Feedback
-Dawasa_aPP
-eDocs
+# Ignore everything at the /var/www root
+/*
+
+# Except the POS_Shops project
+!/POS_Shops/
+
+# Common clutter
+*.zip
+node_modules/
+
+# Other projects (explicit, in case /* doesn't catch nested dirs)
+/AgricultureApp/
+/Air_BnB/
+/Customer_Feedback/
+/Dawasa_aPP/
+/DAWASA mobile/
+/Dawasa aPP/
+/eDocs/
+/FX_Proj/
+/HMS/
+/ProjectTracker/
+/ShopKeeper/
