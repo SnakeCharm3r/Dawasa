@@ -33,7 +33,7 @@ class PurchaseOrderController extends Controller
     {
         $order->load([
             'supplier',
-            'items.quotationItem',
+            'items' => fn ($query) => $query->with('quotationItem')->withSum('supplierInvoiceItems', 'quantity_invoiced'),
             'requisition.department.businessEntity',
             'businessEntity',
             'financialYear',
@@ -51,7 +51,13 @@ class PurchaseOrderController extends Controller
         $user = Auth::user();
         $this->authorize('viewAny', PurchaseOrder::class);
 
-        $query = PurchaseOrder::with(['supplier', 'items', 'requisition', 'selectedQuotation', 'businessEntity']);
+        $query = PurchaseOrder::with([
+            'supplier',
+            'items' => fn ($query) => $query->withSum('supplierInvoiceItems', 'quantity_invoiced'),
+            'requisition',
+            'selectedQuotation',
+            'businessEntity',
+        ]);
 
         if ($user->hasRole('requester')) {
             $query->whereHas('requisition', fn ($q) => $q->where('requester_id', $user->id))

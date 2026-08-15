@@ -56,14 +56,17 @@ Change that password before using the application outside local development.
 
 ## Development
 
-Run Laravel and Next.js in separate terminals:
+Start Laravel and Next.js together from the project root:
 
 ```bash
-/opt/lampp/bin/php artisan serve
+npm run dev
 ```
 
+This starts Laravel at `http://127.0.0.1:8000` and Next.js at `http://localhost:3000`. To run them separately:
+
 ```bash
-npm --prefix frontend run dev
+npm run dev:backend
+npm run dev:frontend
 ```
 
 The workspace is available at `http://localhost:3000`. Next proxies `/backend/*` to Laravel at `http://127.0.0.1:8000`. To use another backend address, create `frontend/.env.local`:

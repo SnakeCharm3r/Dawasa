@@ -184,6 +184,7 @@ type PurchaseOrderLine = {
   item_name: string;
   quantity_ordered: number;
   quantity_received: number;
+  quantity_invoiced: number;
   unit: string;
   unit_price: number;
 };
@@ -194,6 +195,7 @@ function purchaseOrderLines(order?: JsonRecord): PurchaseOrderLine[] {
     item_name: String(item.item_name ?? "Item"),
     quantity_ordered: Number(item.quantity_ordered ?? 0),
     quantity_received: Number(item.quantity_received ?? 0),
+    quantity_invoiced: Number(item.quantity_invoiced ?? 0),
     unit: String(item.unit ?? ""),
     unit_price: Number(item.unit_price ?? 0),
   }));
@@ -289,7 +291,7 @@ export function InvoiceDialog({ open, close, completed }: DialogProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const order = orders.find((item) => String(item.id) === orderId);
-  const lines = purchaseOrderLines(order).filter((line) => line.quantity_received > 0);
+  const lines = purchaseOrderLines(order).filter((line) => line.quantity_received > line.quantity_invoiced);
   const subtotal = lines.reduce((sum, line) => sum + Number(quantities[line.id] ?? 0) * Number(prices[line.id] ?? 0), 0);
   const total = Math.max(0, subtotal - Number(discount || 0) + Number(tax || 0));
 
@@ -302,7 +304,7 @@ export function InvoiceDialog({ open, close, completed }: DialogProps) {
   }, [open]);
 
   useEffect(() => {
-    setQuantities(Object.fromEntries(lines.map((line) => [line.id, String(line.quantity_received)])));
+    setQuantities(Object.fromEntries(lines.map((line) => [line.id, String(line.quantity_received - line.quantity_invoiced)])));
     setPrices(Object.fromEntries(lines.map((line) => [line.id, String(line.unit_price)])));
   // The selected LPO is the intentional reset boundary for invoice lines.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -361,7 +363,7 @@ export function InvoiceDialog({ open, close, completed }: DialogProps) {
           <label className="field"><span>Received by finance</span><input name="received_date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required /></label>
           <Field label="Due date" name="due_date" type="date" />
         </div>
-        {order && <><div className="line-items-heading"><div><h3>Invoice lines</h3><p>Quantities cannot exceed product quantities accepted by the store.</p></div></div><div className="line-items">{lines.map((line, index) => <div className="line-item" key={line.id}><div className="line-number">{index + 1}</div><div className="form-grid item-grid"><div className="field"><span>Item</span><strong>{line.item_name}</strong></div><label className="field"><span>Quantity ({line.unit})</span><input type="number" min="0" max={line.quantity_received} step="0.01" value={quantities[line.id] ?? ""} onChange={(event) => setQuantities((current) => ({ ...current, [line.id]: event.target.value }))} /></label><label className="field"><span>Unit price</span><input type="number" min="0.01" step="0.01" value={prices[line.id] ?? ""} onChange={(event) => setPrices((current) => ({ ...current, [line.id]: event.target.value }))} /></label><div className="line-total"><span>Line total</span><strong>TZS {(Number(quantities[line.id] ?? 0) * Number(prices[line.id] ?? 0)).toLocaleString()}</strong></div></div></div>)}</div></>}
+        {order && <><div className="line-items-heading"><div><h3>Invoice lines</h3><p>Quantities cannot exceed accepted stock that has not already been invoiced.</p></div></div><div className="line-items">{lines.map((line, index) => <div className="line-item" key={line.id}><div className="line-number">{index + 1}</div><div className="form-grid item-grid"><div className="field"><span>Item</span><strong>{line.item_name}</strong></div><label className="field"><span>Quantity ({line.unit})</span><input type="number" min="0" max={line.quantity_received - line.quantity_invoiced} step="0.01" value={quantities[line.id] ?? ""} onChange={(event) => setQuantities((current) => ({ ...current, [line.id]: event.target.value }))} /></label><label className="field"><span>Unit price</span><input type="number" min="0.01" step="0.01" value={prices[line.id] ?? ""} onChange={(event) => setPrices((current) => ({ ...current, [line.id]: event.target.value }))} /></label><div className="line-total"><span>Line total</span><strong>TZS {(Number(quantities[line.id] ?? 0) * Number(prices[line.id] ?? 0)).toLocaleString()}</strong></div></div></div>)}</div></>}
         <div className="form-grid two"><label className="field"><span>Discount</span><input type="number" min="0" step="0.01" value={discount} onChange={(event) => setDiscount(event.target.value)} /></label><label className="field"><span>Tax</span><input type="number" min="0" step="0.01" value={tax} onChange={(event) => setTax(event.target.value)} /></label></div>
         <label className="field"><span>Finance notes</span><textarea name="notes" rows={2} /></label>
         <div className="requisition-total"><span>Invoice total</span><strong>TZS {total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>

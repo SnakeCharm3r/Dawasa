@@ -2,6 +2,7 @@
 
 import { InvoiceDialog, ProformaDialog, ReceiptDialog, RequisitionDialog, SupplierDialog } from "@/components/create-dialogs";
 import { useAuth } from "@/components/auth-provider";
+import { PaymentVoucherModal } from "@/components/payment-voucher-modal";
 import { api, ApiError, collectionFrom, valueAt } from "@/lib/api";
 import { modules, type ActionSpec, type Column, type ModuleConfig } from "@/lib/modules";
 import type { JsonRecord, Pagination } from "@/lib/types";
@@ -85,7 +86,8 @@ export function ResourcePage({ moduleKey }: { moduleKey: string }) {
         <DataTable config={config} rows={rows} loading={loading} select={setSelected} />
         <footer className="table-footer"><span>{pagination.total !== undefined ? `${pagination.total.toLocaleString()} records` : `${rows.length} records`}</span><div className="pagination"><button className="icon-button bordered" disabled={page <= 1 || loading} onClick={() => setPage((value) => value - 1)} title="Previous page"><ChevronLeft size={17} /></button><span>Page {pagination.current_page ?? page}{pagination.last_page ? ` of ${pagination.last_page}` : ""}</span><button className="icon-button bordered" disabled={loading || (pagination.last_page !== undefined && page >= pagination.last_page)} onClick={() => setPage((value) => value + 1)} title="Next page"><ChevronRight size={17} /></button></div></footer>
       </section>
-      {selected && <DetailDrawer item={selected} config={config} close={() => setSelected(null)} act={(action) => setPendingAction({ action, item: selected })} />}
+      {selected && moduleKey === "payments" && <PaymentVoucherModal item={selected} actions={config.actions ?? []} close={() => setSelected(null)} act={(action, item) => { setSelected(null); setPendingAction({ action, item }); }} />}
+      {selected && moduleKey !== "payments" && <DetailDrawer item={selected} config={config} close={() => setSelected(null)} act={(action) => setPendingAction({ action, item: selected })} />}
       {pendingAction && <ActionDialog state={pendingAction} close={() => setPendingAction(null)} completed={(message) => { setPendingAction(null); setSelected(null); completed(message); }} />}
       {config.create === "supplier" && <SupplierDialog open={createOpen} close={() => setCreateOpen(false)} completed={completed} />}
       {config.create === "proforma" && <ProformaDialog open={createOpen} close={() => setCreateOpen(false)} completed={completed} />}

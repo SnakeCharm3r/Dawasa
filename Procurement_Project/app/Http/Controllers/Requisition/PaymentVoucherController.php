@@ -16,9 +16,7 @@ use Illuminate\Support\Facades\Auth;
 
 class PaymentVoucherController extends Controller
 {
-    public function __construct(protected PaymentService $service)
-    {
-    }
+    public function __construct(protected PaymentService $service) {}
 
     protected function runProtected(callable $callback): JsonResponse
     {
@@ -32,7 +30,7 @@ class PaymentVoucherController extends Controller
     protected function loadRelations(PaymentVoucher $voucher): void
     {
         $voucher->load([
-            'supplierInvoice',
+            'supplierInvoice.purchaseOrder.requisition',
             'supplier',
             'businessEntity',
             'financialYear',

@@ -3,8 +3,10 @@
     "private": true,
     "type": "module",
     "scripts": {
-        "build": "vite build",
-        "dev": "vite"
+        "build": "npm --prefix frontend run build",
+        "dev": "node scripts/dev.mjs",
+        "dev:backend": "node scripts/dev.mjs --backend-only",
+        "dev:frontend": "npm --prefix frontend run dev"
     },
     "devDependencies": {
         "@tailwindcss/vite": "^4.0.0",

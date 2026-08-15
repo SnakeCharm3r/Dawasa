@@ -16,6 +16,7 @@ class PurchaseOrderItemResource extends JsonResource
             'specification' => $this->specification,
             'quantity_ordered' => $this->quantity_ordered,
             'quantity_received' => $this->quantity_received,
+            'quantity_invoiced' => $this->supplier_invoice_items_sum_quantity_invoiced ?? 0,
             'unit' => $this->unit,
             'unit_price' => $this->unit_price,
             'line_total' => $this->line_total,
