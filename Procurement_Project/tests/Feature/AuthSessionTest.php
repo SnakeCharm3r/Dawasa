@@ -1,0 +1,86 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Models\BusinessEntity;
+use App\Models\Department;
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Spatie\Permission\Models\Role;
+use Tests\TestCase;
+
+class AuthSessionTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private Department $department;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $entity = BusinessEntity::create([
+            'name' => 'Test Entity',
+            'code' => 'TEST',
+            'is_active' => true,
+        ]);
+
+        $this->department = Department::create([
+            'business_entity_id' => $entity->id,
+            'name' => 'Procurement',
+            'code' => 'PROC',
+            'is_active' => true,
+        ]);
+    }
+
+    public function test_an_active_user_can_log_in_read_their_session_and_log_out(): void
+    {
+        Role::create(['name' => 'requester', 'guard_name' => 'web']);
+
+        $user = User::factory()->create([
+            'department_id' => $this->department->id,
+            'email' => 'requester@example.com',
+            'password' => 'password',
+            'is_active' => true,
+        ]);
+        $user->assignRole('requester');
+
+        $this->postJson('/auth/login', [
+            'email' => 'requester@example.com',
+            'password' => 'password',
+            'remember' => true,
+        ])->assertOk()
+            ->assertJsonPath('data.email', 'requester@example.com')
+            ->assertJsonPath('data.roles.0', 'requester');
+
+        $this->assertAuthenticatedAs($user);
+
+        $this->getJson('/auth/me')
+            ->assertOk()
+            ->assertJsonPath('data.id', $user->id);
+
+        $this->postJson('/auth/logout')
+            ->assertOk()
+            ->assertJsonPath('message', 'Signed out successfully.');
+
+        $this->assertGuest();
+    }
+
+    public function test_inactive_users_cannot_log_in(): void
+    {
+        User::factory()->create([
+            'department_id' => $this->department->id,
+            'email' => 'inactive@example.com',
+            'password' => 'password',
+            'is_active' => false,
+        ]);
+
+        $this->postJson('/auth/login', [
+            'email' => 'inactive@example.com',
+            'password' => 'password',
+        ])->assertUnprocessable()
+            ->assertJsonValidationErrors('email');
+
+        $this->assertGuest();
+    }
+}

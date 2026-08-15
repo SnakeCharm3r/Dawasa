@@ -6,15 +6,21 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class SupplierQuotation extends Model
 {
     use HasFactory;
 
     public const STATUS_DRAFT = 'draft';
+
     public const STATUS_ACTIVE = 'active';
+
     public const STATUS_WITHDRAWN = 'withdrawn';
+
     public const STATUS_EXPIRED = 'expired';
+
+    public const STATUS_REJECTED = 'rejected';
 
     protected $fillable = [
         'purchase_requisition_id',
@@ -27,6 +33,9 @@ class SupplierQuotation extends Model
         'submitted_at',
         'withdrawn_at',
         'expired_at',
+        'rejected_by',
+        'rejected_at',
+        'rejection_reason',
         'notes',
     ];
 
@@ -36,6 +45,7 @@ class SupplierQuotation extends Model
         'submitted_at' => 'datetime',
         'withdrawn_at' => 'datetime',
         'expired_at' => 'datetime',
+        'rejected_at' => 'datetime',
     ];
 
     public function requisition(): BelongsTo
@@ -53,9 +63,19 @@ class SupplierQuotation extends Model
         return $this->belongsTo(User::class, 'prepared_by');
     }
 
+    public function rejectedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'rejected_by');
+    }
+
     public function items(): HasMany
     {
         return $this->hasMany(SupplierQuotationItem::class);
+    }
+
+    public function approvalRecommendation(): HasOne
+    {
+        return $this->hasOne(QuotationRecommendation::class, 'selected_quotation_id')->latestOfMany();
     }
 
     public function scopeValid($query)

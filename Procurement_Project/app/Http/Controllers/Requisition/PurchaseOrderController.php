@@ -13,13 +13,12 @@ use App\Models\PurchaseRequisition;
 use App\Services\PurchaseOrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\Auth;
 
 class PurchaseOrderController extends Controller
 {
-    public function __construct(protected PurchaseOrderService $service)
-    {
-    }
+    public function __construct(protected PurchaseOrderService $service) {}
 
     protected function runProtected(callable $callback): JsonResponse
     {
@@ -47,12 +46,12 @@ class PurchaseOrderController extends Controller
         ]);
     }
 
-    public function index(Request $request): JsonResponse
+    public function index(Request $request): AnonymousResourceCollection
     {
         $user = Auth::user();
         $this->authorize('viewAny', PurchaseOrder::class);
 
-        $query = PurchaseOrder::with(['supplier', 'items', 'requisition', 'businessEntity']);
+        $query = PurchaseOrder::with(['supplier', 'items', 'requisition', 'selectedQuotation', 'businessEntity']);
 
         if ($user->hasRole('requester')) {
             $query->whereHas('requisition', fn ($q) => $q->where('requester_id', $user->id))

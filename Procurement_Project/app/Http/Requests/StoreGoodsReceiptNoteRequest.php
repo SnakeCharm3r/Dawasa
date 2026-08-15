@@ -16,7 +16,7 @@ class StoreGoodsReceiptNoteRequest extends FormRequest
         return [
             'purchase_order_id' => ['required', 'exists:purchase_orders,id'],
             'received_date' => ['required', 'date'],
-            'delivery_note_number' => ['nullable', 'string', 'max:50'],
+            'delivery_note_number' => ['required', 'string', 'max:50'],
             'supplier_invoice_reference' => ['nullable', 'string', 'max:50'],
             'delivery_condition' => ['nullable', 'in:good,damaged,partial,rejected'],
             'inspection_required' => ['boolean'],

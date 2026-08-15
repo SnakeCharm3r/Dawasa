@@ -30,6 +30,12 @@ class SupplierQuotationPolicy
         return $user->hasAnyRole(['super_admin', 'procurement_officer']);
     }
 
+    public function reject(User $user, SupplierQuotation $supplierQuotation): bool
+    {
+        return $supplierQuotation->status === SupplierQuotation::STATUS_ACTIVE
+            && $user->hasAnyRole(['super_admin', 'procurement_officer']);
+    }
+
     public function delete(User $user, SupplierQuotation $supplierQuotation): bool
     {
         return $user->hasAnyRole(['super_admin', 'procurement_officer']);

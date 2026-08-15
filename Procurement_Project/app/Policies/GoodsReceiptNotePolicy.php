@@ -12,12 +12,12 @@ class GoodsReceiptNotePolicy
 
     public function viewAny(User $user): bool
     {
-        return $user->hasAnyRole(['super_admin', 'auditor', 'accountant', 'procurement_officer', 'gm', 'department_head', 'requester']);
+        return $user->hasAnyRole(['super_admin', 'auditor', 'accountant', 'procurement_officer', 'gm', 'department_head', 'requester', 'storekeeper', 'receiving_officer']);
     }
 
     public function view(User $user, GoodsReceiptNote $goodsReceiptNote): bool
     {
-        if ($user->hasAnyRole(['super_admin', 'auditor', 'accountant', 'procurement_officer', 'gm'])) {
+        if ($user->hasAnyRole(['super_admin', 'auditor', 'accountant', 'procurement_officer', 'gm', 'storekeeper', 'receiving_officer'])) {
             return true;
         }
 
@@ -80,7 +80,7 @@ class GoodsReceiptNotePolicy
             return false;
         }
 
-        return $user->hasAnyRole(['super_admin', 'department_head']);
+        return $user->hasAnyRole(['super_admin', 'department_head', 'storekeeper', 'receiving_officer']);
     }
 
     public function cancel(User $user, GoodsReceiptNote $goodsReceiptNote): bool

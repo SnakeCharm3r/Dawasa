@@ -8,7 +8,7 @@ class InspectGoodsReceiptNoteRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return auth()->check() && auth()->user()->hasAnyRole(['super_admin', 'department_head']);
+        return auth()->check() && auth()->user()->hasAnyRole(['super_admin', 'department_head', 'storekeeper', 'receiving_officer']);
     }
 
     public function rules(): array

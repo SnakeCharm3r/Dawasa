@@ -37,6 +37,7 @@ class ProcurementClosureService
         $po = $requisition->purchaseOrder;
         if (! $po) {
             $issues[] = 'No purchase order exists for this requisition.';
+
             return ['eligible' => false, 'issues' => $issues];
         }
 
@@ -60,9 +61,8 @@ class ProcurementClosureService
             if (! in_array($invoice->status, [
                 SupplierInvoice::STATUS_PAID,
                 SupplierInvoice::STATUS_CANCELLED,
-                SupplierInvoice::STATUS_REJECTED,
             ], true)) {
-                $issues[] = "Invoice {$invoice->invoice_number} is not paid, cancelled, or rejected.";
+                $issues[] = "Invoice {$invoice->invoice_number} is not paid or cancelled.";
             }
 
             if ($invoice->status === SupplierInvoice::STATUS_MATCHED_WITH_VARIANCE) {
@@ -106,7 +106,6 @@ class ProcurementClosureService
             ->whereNotIn('status', [
                 SupplierInvoice::STATUS_PAID,
                 SupplierInvoice::STATUS_CANCELLED,
-                SupplierInvoice::STATUS_REJECTED,
             ])
             ->get();
 
@@ -182,7 +181,7 @@ class ProcurementClosureService
             throw new RuntimeException('Only draft closures can be updated.');
         }
 
-        return DB::transaction(function () use ($closure, $actor, $data) {
+        return DB::transaction(function () use ($closure, $data) {
             $closure->update([
                 'completion_summary' => $data['completion_summary'] ?? $closure->completion_summary,
                 'notes' => $data['notes'] ?? $closure->notes,

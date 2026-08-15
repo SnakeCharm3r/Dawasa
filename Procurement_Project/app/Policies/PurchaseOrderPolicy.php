@@ -3,7 +3,6 @@
 namespace App\Policies;
 
 use App\Models\PurchaseOrder;
-use App\Models\PurchaseRequisition;
 use App\Models\User;
 use Illuminate\Auth\Access\HandlesAuthorization;
 
@@ -84,6 +83,12 @@ class PurchaseOrderPolicy
     }
 
     public function returnToProcurement(User $user, PurchaseOrder $purchaseOrder): bool
+    {
+        return $user->hasRole('accountant')
+            && $purchaseOrder->status === PurchaseOrder::STATUS_PENDING_ACCOUNTANT_CONFIRMATION;
+    }
+
+    public function reject(User $user, PurchaseOrder $purchaseOrder): bool
     {
         return $user->hasRole('accountant')
             && $purchaseOrder->status === PurchaseOrder::STATUS_PENDING_ACCOUNTANT_CONFIRMATION;

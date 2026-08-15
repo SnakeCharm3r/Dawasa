@@ -12,9 +12,7 @@ use Illuminate\Support\Facades\Auth;
 
 class PurchaseOrderConfirmationController extends Controller
 {
-    public function __construct(protected PurchaseOrderService $service)
-    {
-    }
+    public function __construct(protected PurchaseOrderService $service) {}
 
     protected function runProtected(callable $callback): JsonResponse
     {
@@ -52,6 +50,24 @@ class PurchaseOrderConfirmationController extends Controller
 
             return response()->json([
                 'message' => 'Purchase order returned to procurement.',
+                'data' => new PurchaseOrderResource($order),
+            ]);
+        });
+    }
+
+    public function reject(PurchaseOrderConfirmationRequest $request, PurchaseOrder $purchaseOrder): JsonResponse
+    {
+        $this->authorize('reject', $purchaseOrder);
+
+        if (empty($request->input('comments'))) {
+            return response()->json(['message' => 'A rejection reason is required.'], 422);
+        }
+
+        return $this->runProtected(function () use ($purchaseOrder, $request) {
+            $order = $this->service->reject($purchaseOrder, Auth::user(), $request->input('comments'));
+
+            return response()->json([
+                'message' => 'LPO rejected by accountant.',
                 'data' => new PurchaseOrderResource($order),
             ]);
         });

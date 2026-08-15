@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\ActivityLog;
 use App\Models\BusinessEntity;
 use App\Models\Department;
 use App\Models\EntityBudget;
@@ -14,8 +15,8 @@ use App\Models\Supplier;
 use App\Models\SupplierQuotation;
 use App\Models\SupplierQuotationItem;
 use App\Models\User;
-use App\Models\ActivityLog;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Testing\TestResponse;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -26,16 +27,27 @@ class Phase6PurchaseOrderTest extends TestCase
     private array $roles = ['super_admin', 'gm', 'accountant', 'procurement_officer', 'department_head', 'requester', 'auditor', 'line_manager'];
 
     private User $superAdmin;
+
     private User $requester;
+
     private User $lineManager;
+
     private User $procurementOfficer;
+
     private User $gm;
+
     private User $accountant;
+
     private User $auditor;
+
     private User $departmentHead;
+
     private BusinessEntity $entity;
+
     private Department $department;
+
     private FinancialYear $financialYear;
+
     private Supplier $supplier;
 
     protected function setUp(): void
@@ -59,8 +71,11 @@ class Phase6PurchaseOrderTest extends TestCase
         $this->auditor = $this->makeUser('auditor');
         $this->departmentHead = $this->makeUser('department_head');
 
-        $this->supplier = new Supplier();
-        $this->supplier->save();
+        $this->supplier = Supplier::create([
+            'name' => 'Test Supplier',
+            'code' => 'SUP-PHASE6',
+            'is_active' => true,
+        ]);
     }
 
     private function makeUser(string $role, array $extra = []): User
@@ -188,31 +203,31 @@ class Phase6PurchaseOrderTest extends TestCase
         return ['requisition' => $requisition, 'lowest' => $lowest, 'highest' => $highest, 'recommendation' => $recommendation->fresh()];
     }
 
-    private function createPo(PurchaseRequisition $requisition): \Illuminate\Testing\TestResponse
+    private function createPo(PurchaseRequisition $requisition): TestResponse
     {
         return $this->actingAs($this->procurementOfficer)
             ->postJson('/admin/purchase-orders', ['purchase_requisition_id' => $requisition->id]);
     }
 
-    private function submitPo(PurchaseOrder $po): \Illuminate\Testing\TestResponse
+    private function submitPo(PurchaseOrder $po): TestResponse
     {
         return $this->actingAs($this->procurementOfficer)
             ->postJson('/admin/purchase-orders/'.$po->id.'/submit');
     }
 
-    private function issuePo(PurchaseOrder $po): \Illuminate\Testing\TestResponse
+    private function issuePo(PurchaseOrder $po): TestResponse
     {
         return $this->actingAs($this->procurementOfficer)
             ->postJson('/admin/purchase-orders/'.$po->id.'/issue');
     }
 
-    private function confirmPo(PurchaseOrder $po, ?string $comments = 'Confirmed'): \Illuminate\Testing\TestResponse
+    private function confirmPo(PurchaseOrder $po, ?string $comments = 'Confirmed'): TestResponse
     {
         return $this->actingAs($this->accountant)
             ->postJson('/admin/purchase-orders/'.$po->id.'/confirm', ['comments' => $comments]);
     }
 
-    private function cancelPo(PurchaseOrder $po, string $reason = 'No longer required'): \Illuminate\Testing\TestResponse
+    private function cancelPo(PurchaseOrder $po, string $reason = 'No longer required'): TestResponse
     {
         return $this->actingAs($this->procurementOfficer)
             ->postJson('/admin/purchase-orders/'.$po->id.'/cancel', ['cancellation_reason' => $reason]);
@@ -381,5 +396,58 @@ class Phase6PurchaseOrderTest extends TestCase
             ->assertStatus(200);
 
         $this->assertEquals(PurchaseOrder::STATUS_DRAFT, $po->fresh()->status);
+    }
+
+    public function test_accountant_can_reject_an_lpo_before_it_is_issued(): void
+    {
+        $scenario = $this->buildApprovedForPurchase();
+        $po = PurchaseOrder::find($this->createPo($scenario['requisition'])->json('data.id'));
+        $this->submitPo($po)->assertOk();
+
+        $this->actingAs($this->accountant)
+            ->postJson('/admin/purchase-orders/'.$po->id.'/reject', [
+                'comments' => 'Payment commitment cannot be made.',
+            ])
+            ->assertOk();
+
+        $po->refresh();
+        $this->assertEquals(PurchaseOrder::STATUS_REJECTED, $po->status);
+        $this->assertEquals($this->accountant->id, $po->rejected_by);
+        $this->assertDatabaseHas('purchase_order_approvals', [
+            'purchase_order_id' => $po->id,
+            'action' => PurchaseOrderApproval::ACTION_ACCOUNTANT_REJECTED,
+        ]);
+    }
+
+    public function test_supplier_invoice_is_blocked_until_store_accepts_delivery(): void
+    {
+        $scenario = $this->buildApprovedForPurchase();
+        $po = PurchaseOrder::find($this->createPo($scenario['requisition'])->json('data.id'));
+        $this->submitPo($po)->assertOk();
+        $this->confirmPo($po)->assertOk();
+        $this->issuePo($po)->assertOk();
+        $poItem = $po->items()->firstOrFail();
+
+        $this->actingAs($this->accountant)
+            ->postJson('/admin/supplier-invoices', [
+                'invoice_number' => 'INV-BEFORE-RECEIPT',
+                'purchase_order_id' => $po->id,
+                'invoice_date' => now()->toDateString(),
+                'received_date' => now()->toDateString(),
+                'currency' => 'TZS',
+                'subtotal' => $poItem->line_total,
+                'discount_amount' => 0,
+                'tax_amount' => 0,
+                'total_amount' => $poItem->line_total,
+                'items' => [[
+                    'purchase_order_item_id' => $poItem->id,
+                    'quantity_invoiced' => $poItem->quantity_ordered,
+                    'unit_price' => $poItem->unit_price,
+                ]],
+            ])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'An invoice can only be recorded after the store or warehouse accepts a delivery against the LPO.');
+
+        $this->assertDatabaseCount('supplier_invoices', 0);
     }
 }

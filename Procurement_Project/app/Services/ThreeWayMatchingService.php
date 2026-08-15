@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Models\GoodsReceiptNote;
 use App\Models\GoodsReceiptNoteItem;
 use App\Models\InvoiceMatchRecord;
 use App\Models\PurchaseOrder;
@@ -136,11 +135,8 @@ class ThreeWayMatchingService
 
     public function returnForCorrection(SupplierInvoice $invoice, User $actor, string $reason): SupplierInvoice
     {
-        if (! in_array($invoice->status, [
-            SupplierInvoice::STATUS_MATCHED_WITH_VARIANCE,
-            SupplierInvoice::STATUS_REJECTED,
-        ], true)) {
-            throw new \RuntimeException('Only invoices with variance or rejected status can be returned for correction.');
+        if ($invoice->status !== SupplierInvoice::STATUS_MATCHED_WITH_VARIANCE) {
+            throw new \RuntimeException('Only invoices with a variance can be returned for correction.');
         }
 
         return DB::transaction(function () use ($invoice, $actor, $reason) {

@@ -16,9 +16,7 @@ use Illuminate\Support\Facades\Auth;
 
 class GoodsReceiptNoteController extends Controller
 {
-    public function __construct(protected GoodsReceiptService $service)
-    {
-    }
+    public function __construct(protected GoodsReceiptService $service) {}
 
     protected function runProtected(callable $callback): JsonResponse
     {
@@ -47,7 +45,7 @@ class GoodsReceiptNoteController extends Controller
     {
         $this->authorize('viewAny', GoodsReceiptNote::class);
 
-        $query = GoodsReceiptNote::with(['purchaseOrder', 'supplier', 'businessEntity', 'receivedBy']);
+        $query = GoodsReceiptNote::with(['purchaseOrder.requisition', 'supplier', 'businessEntity', 'receivedBy', 'items']);
 
         if ($request->has('po_number')) {
             $query->whereHas('purchaseOrder', fn ($q) => $q->where('purchase_order_number', 'like', '%'.$request->input('po_number').'%'));
@@ -130,7 +128,7 @@ class GoodsReceiptNoteController extends Controller
     {
         $this->authorize('submit', $goodsReceiptNote);
 
-        return $this->runProtected(function () use ($goodsReceiptNote, $request) {
+        return $this->runProtected(function () use ($goodsReceiptNote) {
             $grn = $this->service->submit($goodsReceiptNote, Auth::user());
             $this->loadRelations($grn);
 

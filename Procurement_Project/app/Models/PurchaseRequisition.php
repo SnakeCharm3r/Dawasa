@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class PurchaseRequisition extends Model
 {
@@ -104,6 +105,11 @@ class PurchaseRequisition extends Model
     public function quotationRecommendations(): HasMany
     {
         return $this->hasMany(QuotationRecommendation::class, 'purchase_requisition_id');
+    }
+
+    public function purchaseOrder(): HasOne
+    {
+        return $this->hasOne(PurchaseOrder::class, 'purchase_requisition_id');
     }
 
     public function getEstimatedAmountAttribute($value)

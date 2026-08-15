@@ -316,6 +316,8 @@ The system is organized into the following modules:
 
 ## Module 5: Purchase Order Management
 
+In the user interface, purchase orders are labelled Local Purchase Orders (LPOs). Each LPO belongs to one approved requisition and stores the selected, GM-approved supplier proforma ID. The accountant either confirms the payment commitment, returns the draft for correction, or rejects the LPO before it is issued.
+
 ### Controllers
 
 #### PurchaseOrderController (`App\Http\Controllers\Requisition\PurchaseOrderController`)
@@ -348,6 +350,7 @@ The system is organized into the following modules:
 **Endpoints:**
 - `POST /admin/purchase-orders/{purchaseOrder}/confirm` - Confirm budget
 - `POST /admin/purchase-orders/{purchaseOrder}/return` - Return to procurement
+- `POST /admin/purchase-orders/{purchaseOrder}/reject` - Reject LPO before issue
 
 ### Models
 - `PurchaseOrder` - Main PO record
@@ -364,6 +367,8 @@ The system is organized into the following modules:
 ---
 
 ## Module 6: Goods Receipt Management
+
+The supplier delivery note is recorded against the issued LPO. A separate storekeeper, receiving officer, department head, or super administrator verifies the quantities and signs by accepting the GRN; the user who recorded receipt cannot inspect their own GRN. Only accepted quantities become invoiceable.
 
 ### Controllers
 
@@ -411,6 +416,8 @@ The system is organized into the following modules:
 ---
 
 ## Module 7: Supplier Invoice Management
+
+Supplier invoices preserve the consecutive requisition -> proforma -> LPO -> invoice relationship through the LPO foreign key. An invoice can only be recorded after warehouse/store acceptance. Invoices deliberately have no `rejected` status because the goods have already been accepted; matching variances are returned for correction and draft invoices may be cancelled under policy.
 
 ### Controllers
 

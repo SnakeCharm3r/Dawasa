@@ -5,18 +5,24 @@ namespace App\Http\Controllers\Requisition;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreSupplierQuotationRequest;
 use App\Http\Requests\UpdateSupplierQuotationRequest;
+use App\Models\ActivityLog;
 use App\Models\PurchaseRequisition;
 use App\Models\SupplierQuotation;
+use App\Services\QuotationRecommendationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 
 class SupplierQuotationController extends Controller
 {
+    public function __construct(private readonly QuotationRecommendationService $recommendationService) {}
+
     public function index(Request $request): JsonResponse
     {
         $this->authorize('viewAny', SupplierQuotation::class);
 
-        $query = SupplierQuotation::with(['supplier', 'requisition']);
+        $query = SupplierQuotation::with(['supplier', 'requisition', 'approvalRecommendation']);
 
         if ($request->has('requisition_id')) {
             $query->where('purchase_requisition_id', $request->input('requisition_id'));
@@ -50,12 +56,28 @@ class SupplierQuotationController extends Controller
             ], 422);
         }
 
-        $quotation = SupplierQuotation::create($request->validated());
+        return DB::transaction(function () use ($request) {
+            $data = $request->validated();
+            $items = collect($data['items']);
+            $total = $items->sum(fn (array $item) => (float) $item['quantity'] * (float) $item['unit_price']);
 
-        return response()->json([
-            'message' => 'Supplier quotation created successfully.',
-            'data' => $quotation->load('items'),
-        ], 201);
+            $quotation = SupplierQuotation::create([
+                ...collect($data)->except('items')->all(),
+                'prepared_by' => Auth::id(),
+                'total_amount' => $total,
+                'status' => SupplierQuotation::STATUS_DRAFT,
+            ]);
+
+            $quotation->items()->createMany($items->map(fn (array $item) => [
+                ...$item,
+                'total_price' => (float) $item['quantity'] * (float) $item['unit_price'],
+            ])->all());
+
+            return response()->json([
+                'message' => 'Supplier proforma created successfully.',
+                'data' => $quotation->load(['supplier', 'requisition', 'items']),
+            ], 201);
+        });
     }
 
     public function show(SupplierQuotation $supplierQuotation): JsonResponse
@@ -141,6 +163,61 @@ class SupplierQuotationController extends Controller
         return response()->json([
             'message' => 'Supplier quotation withdrawn successfully.',
             'data' => $supplierQuotation->fresh(),
+        ]);
+    }
+
+    public function reject(Request $request, SupplierQuotation $supplierQuotation): JsonResponse
+    {
+        $this->authorize('reject', $supplierQuotation);
+
+        $data = $request->validate([
+            'reason' => ['required', 'string', 'max:2000'],
+        ]);
+
+        $supplierQuotation->update([
+            'status' => SupplierQuotation::STATUS_REJECTED,
+            'rejected_by' => Auth::id(),
+            'rejected_at' => now(),
+            'rejection_reason' => $data['reason'],
+        ]);
+
+        ActivityLog::record(
+            Auth::user(),
+            'supplier_quotation.rejected',
+            $supplierQuotation,
+            ['status' => SupplierQuotation::STATUS_ACTIVE],
+            ['status' => SupplierQuotation::STATUS_REJECTED, 'reason' => $data['reason']],
+        );
+
+        return response()->json([
+            'message' => 'Proforma rejected.',
+            'data' => $supplierQuotation->fresh(['supplier', 'requisition', 'rejectedBy']),
+        ]);
+    }
+
+    public function requestApproval(Request $request, SupplierQuotation $supplierQuotation): JsonResponse
+    {
+        $this->authorize('update', $supplierQuotation);
+
+        $data = $request->validate([
+            'reason_for_selection' => ['required', 'string', 'max:2000'],
+            'non_lowest_price_reason' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        try {
+            $recommendation = $this->recommendationService->submitProformaForApproval(
+                $supplierQuotation,
+                $data,
+                Auth::user(),
+            );
+        } catch (\RuntimeException $exception) {
+            return response()->json(['message' => $exception->getMessage()], 422);
+        }
+
+        return response()->json([
+            'message' => 'Proforma sent for GM approval.',
+            'data' => $supplierQuotation->fresh(['supplier', 'requisition', 'approvalRecommendation']),
+            'recommendation' => $recommendation,
         ]);
     }
 }

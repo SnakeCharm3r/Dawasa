@@ -3,11 +3,14 @@
 namespace App\Http\Controllers\Requisition;
 
 use App\Http\Controllers\Controller;
+use App\Models\BudgetTransaction;
 use App\Models\GoodsReceiptNote;
 use App\Models\PaymentVoucher;
+use App\Models\ProcurementClosure;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseRequisition;
 use App\Models\QuotationRecommendation;
+use App\Models\RequisitionApproval;
 use App\Models\SupplierInvoice;
 use App\Models\SupplierQuotation;
 use Illuminate\Http\JsonResponse;
@@ -33,6 +36,7 @@ class ProcurementReportController extends Controller
         if ($request->has('to_date')) {
             $query->where('created_at', '<=', $request->input('to_date'));
         }
+
         return $query;
     }
 
@@ -78,7 +82,8 @@ class ProcurementReportController extends Controller
     public function nonLowestPriceRecommendation(Request $request): JsonResponse
     {
         $data = QuotationRecommendation::with(['purchaseRequisition', 'selectedQuotation.supplier'])
-            ->whereHas('selectedQuotation', fn ($q) => $q->where('is_lowest', false))
+            ->whereNotNull('non_lowest_price_reason')
+            ->where('non_lowest_price_reason', '!=', '')
             ->when($request->has('business_entity_id'), fn ($q) => $q->whereHas('purchaseRequisition', fn ($sq) => $sq->where('business_entity_id', $request->input('business_entity_id'))))
             ->orderByDesc('created_at')
             ->paginate($request->input('per_page', 50));
@@ -169,7 +174,7 @@ class ProcurementReportController extends Controller
 
     public function budgetCommitmentReport(Request $request): JsonResponse
     {
-        $data = \App\Models\BudgetTransaction::with(['businessEntity', 'financialYear', 'actor'])
+        $data = BudgetTransaction::with(['businessEntity', 'financialYear', 'actor'])
             ->when($request->has('business_entity_id'), fn ($q) => $q->where('business_entity_id', $request->input('business_entity_id')))
             ->when($request->has('financial_year_id'), fn ($q) => $q->where('financial_year_id', $request->input('financial_year_id')))
             ->orderByDesc('created_at')
@@ -275,7 +280,7 @@ class ProcurementReportController extends Controller
 
     public function closureExceptionReport(Request $request): JsonResponse
     {
-        $data = \App\Models\ProcurementClosure::with(['purchaseRequisition', 'purchaseOrder', 'closedBy'])
+        $data = ProcurementClosure::with(['purchaseRequisition', 'purchaseOrder', 'closedBy'])
             ->where('closure_status', 'closed_with_exception')
             ->when($request->has('business_entity_id'), fn ($q) => $q->whereHas('purchaseRequisition', fn ($sq) => $sq->where('business_entity_id', $request->input('business_entity_id'))))
             ->orderByDesc('closed_at')
@@ -331,7 +336,7 @@ class ProcurementReportController extends Controller
         }
 
         if ($userId) {
-            $userApprovals = \App\Models\RequisitionApproval::where('actor_id', $userId)
+            $userApprovals = RequisitionApproval::where('actor_id', $userId)
                 ->with('purchaseRequisition')
                 ->get();
             foreach ($userApprovals as $approval) {
@@ -341,6 +346,7 @@ class ProcurementReportController extends Controller
 
         $sorted = $timeline->sortBy(function ($item) {
             $date = $item['model']->created_at ?? $item['model']->action_at ?? null;
+
             return $date ? $date->timestamp : 0;
         })->values();
 

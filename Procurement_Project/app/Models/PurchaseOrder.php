@@ -12,13 +12,23 @@ class PurchaseOrder extends Model
     use HasFactory;
 
     public const STATUS_DRAFT = 'draft';
+
     public const STATUS_PENDING_ACCOUNTANT_CONFIRMATION = 'pending_accountant_confirmation';
+
     public const STATUS_CONFIRMED = 'confirmed';
+
     public const STATUS_ISSUED = 'issued';
+
     public const STATUS_ACKNOWLEDGED = 'acknowledged';
+
     public const STATUS_PARTIALLY_RECEIVED = 'partially_received';
+
     public const STATUS_FULLY_RECEIVED = 'fully_received';
+
+    public const STATUS_REJECTED = 'rejected';
+
     public const STATUS_CANCELLED = 'cancelled';
+
     public const STATUS_CLOSED = 'closed';
 
     protected $fillable = [
@@ -43,6 +53,9 @@ class PurchaseOrder extends Model
         'notes',
         'accountant_confirmed_by',
         'accountant_confirmed_at',
+        'rejected_by',
+        'rejected_at',
+        'rejection_reason',
         'issued_by',
         'issued_at',
         'supplier_acknowledged_at',
@@ -59,6 +72,7 @@ class PurchaseOrder extends Model
         'tax_amount' => 'decimal:2',
         'total_amount' => 'decimal:2',
         'accountant_confirmed_at' => 'datetime',
+        'rejected_at' => 'datetime',
         'issued_at' => 'datetime',
         'supplier_acknowledged_at' => 'datetime',
         'cancelled_at' => 'datetime',
@@ -112,6 +126,11 @@ class PurchaseOrder extends Model
     public function issuedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'issued_by');
+    }
+
+    public function rejectedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'rejected_by');
     }
 
     public function cancelledBy(): BelongsTo

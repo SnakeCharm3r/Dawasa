@@ -4,32 +4,40 @@ use App\Http\Controllers\Admin\BusinessEntityController;
 use App\Http\Controllers\Admin\DepartmentController;
 use App\Http\Controllers\Admin\SupplierController;
 use App\Http\Controllers\Admin\UserController;
+use App\Http\Controllers\AuthController;
 use App\Http\Controllers\Budget\BudgetApprovalController;
 use App\Http\Controllers\Budget\EntityBudgetController;
 use App\Http\Controllers\Budget\FinancialYearController;
 use App\Http\Controllers\Requisition\FinalApprovalController;
-use App\Http\Controllers\Requisition\PurchaseRequisitionController;
-use App\Http\Controllers\Requisition\QuotationRecommendationController;
-use App\Http\Controllers\Requisition\PurchaseOrderController;
-use App\Http\Controllers\Requisition\SupplierQuotationController;
-use App\Http\Controllers\Requisition\PurchaseOrderConfirmationController;
-use App\Http\Controllers\Requisition\RequisitionApprovalController;
-use App\Http\Controllers\Requisition\RequisitionAttachmentController;
-use App\Http\Controllers\Requisition\GoodsReceiptNoteController;
 use App\Http\Controllers\Requisition\GoodsReceiptInspectionController;
-use App\Http\Controllers\Requisition\SupplierInvoiceController;
+use App\Http\Controllers\Requisition\GoodsReceiptNoteController;
 use App\Http\Controllers\Requisition\InvoiceMatchingController;
-use App\Http\Controllers\Requisition\PaymentVoucherController;
 use App\Http\Controllers\Requisition\PaymentApprovalController;
 use App\Http\Controllers\Requisition\PaymentController;
+use App\Http\Controllers\Requisition\PaymentVoucherController;
 use App\Http\Controllers\Requisition\ProcurementClosureController;
-use App\Http\Controllers\Requisition\RequesterClosureConfirmationController;
 use App\Http\Controllers\Requisition\ProcurementDashboardController;
 use App\Http\Controllers\Requisition\ProcurementReportController;
+use App\Http\Controllers\Requisition\PurchaseOrderConfirmationController;
+use App\Http\Controllers\Requisition\PurchaseOrderController;
+use App\Http\Controllers\Requisition\PurchaseRequisitionController;
+use App\Http\Controllers\Requisition\QuotationRecommendationController;
+use App\Http\Controllers\Requisition\RequesterClosureConfirmationController;
+use App\Http\Controllers\Requisition\RequisitionApprovalController;
+use App\Http\Controllers\Requisition\RequisitionAttachmentController;
+use App\Http\Controllers\Requisition\SupplierInvoiceController;
+use App\Http\Controllers\Requisition\SupplierQuotationController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
     return view('welcome');
+});
+
+Route::prefix('auth')->name('auth.')->group(function () {
+    Route::get('csrf', [AuthController::class, 'csrf'])->name('csrf');
+    Route::post('login', [AuthController::class, 'login'])->middleware('throttle:6,1')->name('login');
+    Route::get('me', [AuthController::class, 'me'])->middleware('auth')->name('me');
+    Route::post('logout', [AuthController::class, 'logout'])->middleware('auth')->name('logout');
 });
 
 Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () {
@@ -82,6 +90,8 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
 
     Route::post('supplier-quotations/{supplierQuotation}/submit', [SupplierQuotationController::class, 'submit'])->name('supplier-quotations.submit');
     Route::post('supplier-quotations/{supplierQuotation}/withdraw', [SupplierQuotationController::class, 'withdraw'])->name('supplier-quotations.withdraw');
+    Route::post('supplier-quotations/{supplierQuotation}/reject', [SupplierQuotationController::class, 'reject'])->name('supplier-quotations.reject');
+    Route::post('supplier-quotations/{supplierQuotation}/request-approval', [SupplierQuotationController::class, 'requestApproval'])->name('supplier-quotations.request-approval');
 
     Route::post('purchase-requisitions/{purchaseRequisition}/approve', [RequisitionApprovalController::class, 'approve'])->name('purchase-requisitions.approve');
     Route::post('purchase-requisitions/{purchaseRequisition}/return', [RequisitionApprovalController::class, 'return'])->name('purchase-requisitions.return');
@@ -105,6 +115,7 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
 
     Route::post('purchase-orders/{purchaseOrder}/confirm', [PurchaseOrderConfirmationController::class, 'confirm'])->name('purchase-orders.confirm');
     Route::post('purchase-orders/{purchaseOrder}/return', [PurchaseOrderConfirmationController::class, 'returnToProcurement'])->name('purchase-orders.return');
+    Route::post('purchase-orders/{purchaseOrder}/reject', [PurchaseOrderConfirmationController::class, 'reject'])->name('purchase-orders.reject');
 
     Route::apiResource('goods-receipt-notes', GoodsReceiptNoteController::class)
         ->parameters(['goods-receipt-notes' => 'goodsReceiptNote'])

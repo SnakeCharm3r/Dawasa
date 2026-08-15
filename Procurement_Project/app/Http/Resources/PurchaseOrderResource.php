@@ -44,6 +44,8 @@ class PurchaseOrderResource extends JsonResource
             'accountant_confirmed_at' => $this->accountant_confirmed_at?->toDateTimeString(),
             'issued_at' => $this->issued_at?->toDateTimeString(),
             'supplier_acknowledged_at' => $this->supplier_acknowledged_at?->toDateTimeString(),
+            'rejected_at' => $this->rejected_at?->toDateTimeString(),
+            'rejection_reason' => $this->rejection_reason,
             'cancelled_at' => $this->cancelled_at?->toDateTimeString(),
             'cancellation_reason' => $this->cancellation_reason,
             'created_at' => $this->created_at?->toDateTimeString(),

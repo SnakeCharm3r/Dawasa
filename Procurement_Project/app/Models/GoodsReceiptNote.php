@@ -12,11 +12,17 @@ class GoodsReceiptNote extends Model
     use HasFactory;
 
     public const STATUS_DRAFT = 'draft';
+
     public const STATUS_SUBMITTED = 'submitted';
+
     public const STATUS_INSPECTED = 'inspected';
+
     public const STATUS_PARTIALLY_ACCEPTED = 'partially_accepted';
+
     public const STATUS_ACCEPTED = 'accepted';
+
     public const STATUS_REJECTED = 'rejected';
+
     public const STATUS_CANCELLED = 'cancelled';
 
     protected $fillable = [
@@ -88,6 +94,11 @@ class GoodsReceiptNote extends Model
     public function approvals(): HasMany
     {
         return $this->hasMany(GoodsReceiptApproval::class);
+    }
+
+    public function hasAcceptedItems(): bool
+    {
+        return $this->items()->where('quantity_accepted', '>', 0)->exists();
     }
 
     public function isEditable(): bool

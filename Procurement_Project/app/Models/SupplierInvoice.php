@@ -12,15 +12,23 @@ class SupplierInvoice extends Model
     use HasFactory;
 
     public const STATUS_DRAFT = 'draft';
+
     public const STATUS_SUBMITTED = 'submitted';
+
     public const STATUS_PENDING_MATCH = 'pending_match';
+
     public const STATUS_MATCHED = 'matched';
+
     public const STATUS_MATCHED_WITH_VARIANCE = 'matched_with_variance';
+
     public const STATUS_RETURNED = 'returned';
-    public const STATUS_REJECTED = 'rejected';
+
     public const STATUS_APPROVED_FOR_PAYMENT = 'approved_for_payment';
+
     public const STATUS_PARTIALLY_PAID = 'partially_paid';
+
     public const STATUS_PAID = 'paid';
+
     public const STATUS_CANCELLED = 'cancelled';
 
     protected $fillable = [
@@ -122,7 +130,6 @@ class SupplierInvoice extends Model
         return in_array($this->status, [
             self::STATUS_DRAFT,
             self::STATUS_RETURNED,
-            self::STATUS_REJECTED,
         ], true);
     }
 

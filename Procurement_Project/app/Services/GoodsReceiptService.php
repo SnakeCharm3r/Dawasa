@@ -2,10 +2,10 @@
 
 namespace App\Services;
 
+use App\Models\ActivityLog;
 use App\Models\GoodsReceiptApproval;
 use App\Models\GoodsReceiptNote;
 use App\Models\GoodsReceiptNoteItem;
-use App\Models\ActivityLog;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
 use App\Models\User;
@@ -315,21 +315,21 @@ class GoodsReceiptService
     {
         $allItems = $order->items;
         $allFullyReceived = true;
-        $hasPartial = false;
+        $hasReceivedItems = false;
 
         foreach ($allItems as $item) {
             if ((float) $item->quantity_received < (float) $item->quantity_ordered) {
                 $allFullyReceived = false;
             }
 
-            if ((float) $item->quantity_received > 0 && (float) $item->quantity_received < (float) $item->quantity_ordered) {
-                $hasPartial = true;
+            if ((float) $item->quantity_received > 0) {
+                $hasReceivedItems = true;
             }
         }
 
         if ($allFullyReceived) {
             $order->status = PurchaseOrder::STATUS_FULLY_RECEIVED;
-        } elseif ($hasPartial) {
+        } elseif ($hasReceivedItems) {
             $order->status = PurchaseOrder::STATUS_PARTIALLY_RECEIVED;
         }
 

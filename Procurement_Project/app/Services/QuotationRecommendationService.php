@@ -15,6 +15,51 @@ use Illuminate\Support\Facades\DB;
 
 class QuotationRecommendationService
 {
+    public function submitProformaForApproval(SupplierQuotation $quotation, array $data, User $actor): QuotationRecommendation
+    {
+        if ($quotation->status !== SupplierQuotation::STATUS_ACTIVE) {
+            throw new \RuntimeException('Only an active proforma can be sent for approval.');
+        }
+
+        $requisition = $quotation->requisition;
+        if (! in_array($requisition->status, [
+            PurchaseRequisition::STATUS_APPROVED_FOR_SOURCING,
+            PurchaseRequisition::STATUS_QUOTATIONS_READY,
+            PurchaseRequisition::STATUS_RETURNED_TO_SOURCING,
+        ], true)) {
+            throw new \RuntimeException('The linked requisition is not ready for proforma approval.');
+        }
+
+        $this->assertNoActiveRecommendation($requisition);
+        $this->ensureNonLowestReason($requisition, $quotation, $data);
+
+        return DB::transaction(function () use ($quotation, $data, $actor, $requisition) {
+            $recommendation = QuotationRecommendation::create([
+                'purchase_requisition_id' => $requisition->id,
+                'selected_quotation_id' => $quotation->id,
+                'recommended_by' => $actor->id,
+                'recommended_at' => now(),
+                'reason_for_selection' => $data['reason_for_selection'],
+                'non_lowest_price_reason' => $data['non_lowest_price_reason'] ?? null,
+                'total_quoted_amount' => $quotation->total_amount,
+                'status' => QuotationRecommendation::STATUS_SUBMITTED,
+            ]);
+
+            $requisition->update(['status' => PurchaseRequisition::STATUS_PENDING_FINAL_APPROVAL]);
+
+            ProcurementApproval::create([
+                'purchase_requisition_id' => $requisition->id,
+                'quotation_recommendation_id' => $recommendation->id,
+                'action' => ProcurementApproval::ACTION_RECOMMENDATION_SUBMITTED,
+                'actor_id' => $actor->id,
+                'comments' => $data['reason_for_selection'],
+                'action_at' => now(),
+            ]);
+
+            return $recommendation->fresh(['selectedQuotation', 'requisition']);
+        });
+    }
+
     public function createDraft(PurchaseRequisition $requisition, array $data, User $user): QuotationRecommendation
     {
         $this->assertRequesterOwnsRequisition($requisition, $user);
@@ -162,7 +207,13 @@ class QuotationRecommendationService
 
         DB::transaction(function () use ($recommendation, $comments, $actor) {
             $recommendation->update(['status' => QuotationRecommendation::STATUS_REJECTED]);
-            $recommendation->requisition->update(['status' => PurchaseRequisition::STATUS_REJECTED]);
+            $recommendation->selectedQuotation->update([
+                'status' => SupplierQuotation::STATUS_REJECTED,
+                'rejected_by' => $actor->id,
+                'rejected_at' => now(),
+                'rejection_reason' => $comments,
+            ]);
+            $recommendation->requisition->update(['status' => PurchaseRequisition::STATUS_RETURNED_TO_SOURCING]);
 
             ProcurementApproval::create([
                 'purchase_requisition_id' => $recommendation->purchase_requisition_id,

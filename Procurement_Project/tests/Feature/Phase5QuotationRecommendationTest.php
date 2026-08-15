@@ -67,8 +67,11 @@ class Phase5QuotationRecommendationTest extends TestCase
         $this->auditor = $this->makeUser('auditor');
         $this->departmentHead = $this->makeUser('department_head');
 
-        $this->supplier = new Supplier;
-        $this->supplier->save();
+        $this->supplier = Supplier::create([
+            'name' => 'Test Supplier',
+            'code' => 'SUP-PHASE5',
+            'is_active' => true,
+        ]);
     }
 
     private function makeUser(string $role, array $extra = []): User
@@ -371,5 +374,23 @@ class Phase5QuotationRecommendationTest extends TestCase
             $this->assertArrayNotHasKey('estimated_unit_price', $item);
             $this->assertArrayNotHasKey('estimated_total', $item);
         }
+    }
+
+    public function test_procurement_can_reject_an_active_proforma_with_an_audit_reason(): void
+    {
+        $requisition = $this->buildScenario();
+        $proforma = $this->lowestQuote($requisition);
+
+        $this->actingAs($this->procurementOfficer)
+            ->postJson('/admin/supplier-quotations/'.$proforma->id.'/reject', [
+                'reason' => 'Supplier terms are not acceptable.',
+            ])
+            ->assertOk();
+
+        $proforma->refresh();
+        $this->assertEquals(SupplierQuotation::STATUS_REJECTED, $proforma->status);
+        $this->assertEquals($this->procurementOfficer->id, $proforma->rejected_by);
+        $this->assertNotNull($proforma->rejected_at);
+        $this->assertEquals('Supplier terms are not acceptable.', $proforma->rejection_reason);
     }
 }

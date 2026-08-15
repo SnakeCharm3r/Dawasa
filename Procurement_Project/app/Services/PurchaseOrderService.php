@@ -2,7 +2,7 @@
 
 namespace App\Services;
 
-use App\Models\BusinessEntity;
+use App\Models\ActivityLog;
 use App\Models\EntityBudget;
 use App\Models\FinancialYear;
 use App\Models\PurchaseOrder;
@@ -11,7 +11,6 @@ use App\Models\PurchaseOrderItem;
 use App\Models\PurchaseRequisition;
 use App\Models\QuotationRecommendation;
 use App\Models\SupplierQuotation;
-use App\Models\ActivityLog;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 
@@ -230,6 +229,40 @@ class PurchaseOrderService
                 $order,
                 ['status' => PurchaseOrder::STATUS_PENDING_ACCOUNTANT_CONFIRMATION],
                 ['status' => PurchaseOrder::STATUS_DRAFT, 'comments' => $comments]
+            );
+
+            return $order->fresh();
+        });
+    }
+
+    public function reject(PurchaseOrder $order, User $actor, string $reason): PurchaseOrder
+    {
+        if ($order->status !== PurchaseOrder::STATUS_PENDING_ACCOUNTANT_CONFIRMATION) {
+            throw new \RuntimeException('Only LPOs pending accountant confirmation can be rejected.');
+        }
+
+        return DB::transaction(function () use ($order, $actor, $reason) {
+            $order->update([
+                'status' => PurchaseOrder::STATUS_REJECTED,
+                'rejected_by' => $actor->id,
+                'rejected_at' => now(),
+                'rejection_reason' => $reason,
+            ]);
+
+            PurchaseOrderApproval::create([
+                'purchase_order_id' => $order->id,
+                'action' => PurchaseOrderApproval::ACTION_ACCOUNTANT_REJECTED,
+                'actor_id' => $actor->id,
+                'comments' => $reason,
+                'action_at' => now(),
+            ]);
+
+            ActivityLog::record(
+                $actor,
+                'purchase_order.accountant_rejected',
+                $order,
+                ['status' => PurchaseOrder::STATUS_PENDING_ACCOUNTANT_CONFIRMATION],
+                ['status' => PurchaseOrder::STATUS_REJECTED, 'reason' => $reason],
             );
 
             return $order->fresh();

@@ -7,10 +7,12 @@ use App\Models\BudgetTransaction;
 use App\Models\EntityBudget;
 use App\Models\GoodsReceiptNote;
 use App\Models\PaymentVoucher;
+use App\Models\ProcurementClosure;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseRequisition;
 use App\Models\QuotationRecommendation;
 use App\Models\SupplierInvoice;
+use App\Models\SupplierQuotation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -25,6 +27,7 @@ class ProcurementDashboardController extends Controller
         if ($request->has('financial_year_id')) {
             $query->where('financial_year_id', $request->input('financial_year_id'));
         }
+
         return $query;
     }
 
@@ -50,7 +53,15 @@ class ProcurementDashboardController extends Controller
 
         $budgetSummaries = [];
         if ($canSeeBudgetData) {
-            $budgetSummaries = EntityBudget::select('business_entity_id', 'financial_year_id', 'allocated_amount', 'committed_amount', 'spent_amount')
+            $budgetSummaries = EntityBudget::select(
+                'business_entity_id',
+                'financial_year_id',
+                'proposed_amount',
+                'approved_amount',
+                'committed_amount',
+                'spent_amount',
+                'available_amount',
+            )
                 ->when($request->has('business_entity_id'), fn ($q) => $q->where('business_entity_id', $request->input('business_entity_id')))
                 ->when($request->has('financial_year_id'), fn ($q) => $q->where('financial_year_id', $request->input('financial_year_id')))
                 ->with(['businessEntity', 'financialYear'])
@@ -84,7 +95,9 @@ class ProcurementDashboardController extends Controller
             ->get();
 
         $exceptions = [
-            'non_lowest_quote_selections' => QuotationRecommendation::whereHas('selectedQuotation', fn ($q) => $q->where('is_lowest', false))->count(),
+            'non_lowest_quote_selections' => QuotationRecommendation::whereNotNull('non_lowest_price_reason')
+                ->where('non_lowest_price_reason', '!=', '')
+                ->count(),
             'rejected_grns' => GoodsReceiptNote::where('status', GoodsReceiptNote::STATUS_REJECTED)->count(),
             'overdue_pos' => PurchaseOrder::where('expected_delivery_date', '<', now())
                 ->whereNotIn('status', [PurchaseOrder::STATUS_CANCELLED, PurchaseOrder::STATUS_CLOSED, PurchaseOrder::STATUS_FULLY_RECEIVED])
@@ -145,7 +158,7 @@ class ProcurementDashboardController extends Controller
 
         $awaitingInspection = (clone $grnQuery)->where('status', GoodsReceiptNote::STATUS_SUBMITTED)->count();
 
-        $closureQuery = \App\Models\ProcurementClosure::query();
+        $closureQuery = ProcurementClosure::query();
         $this->applyEntityFilter($closureQuery->whereHas('purchaseRequisition'), $request);
 
         $awaitingRequesterConfirmation = (clone $closureQuery)->where('closure_status', 'pending_requester_confirmation')->count();
@@ -175,7 +188,15 @@ class ProcurementDashboardController extends Controller
         $budgetQuery = EntityBudget::query();
         $this->applyEntityFilter($budgetQuery, $request);
 
-        $budgetSummaries = (clone $budgetQuery)->select('business_entity_id', 'financial_year_id', 'allocated_amount', 'committed_amount', 'spent_amount')
+        $budgetSummaries = (clone $budgetQuery)->select(
+            'business_entity_id',
+            'financial_year_id',
+            'proposed_amount',
+            'approved_amount',
+            'committed_amount',
+            'spent_amount',
+            'available_amount',
+        )
             ->with(['businessEntity', 'financialYear'])
             ->get();
 
@@ -232,7 +253,7 @@ class ProcurementDashboardController extends Controller
             ->where('status', PurchaseRequisition::STATUS_RETURNED)
             ->count();
 
-        $awaitingMyConfirmation = \App\Models\ProcurementClosure::whereHas('purchaseRequisition', fn ($q) => $q->where('requester_id', $userId))
+        $awaitingMyConfirmation = ProcurementClosure::whereHas('purchaseRequisition', fn ($q) => $q->where('requester_id', $userId))
             ->where('closure_status', 'pending_requester_confirmation')
             ->count();
 
@@ -253,19 +274,21 @@ class ProcurementDashboardController extends Controller
 
         $workflowCounts = [
             'requisitions' => PurchaseRequisition::count(),
-            'quotations' => \App\Models\SupplierQuotation::count(),
+            'quotations' => SupplierQuotation::count(),
             'purchase_orders' => PurchaseOrder::count(),
             'grns' => GoodsReceiptNote::count(),
             'invoices' => SupplierInvoice::count(),
             'payments' => PaymentVoucher::count(),
-            'closures' => \App\Models\ProcurementClosure::count(),
+            'closures' => ProcurementClosure::count(),
         ];
 
         $exceptions = [
             'returned_cases' => PurchaseRequisition::where('status', PurchaseRequisition::STATUS_RETURNED)->count(),
             'rejected_cases' => PurchaseRequisition::where('status', PurchaseRequisition::STATUS_REJECTED)->count(),
             'cancelled_cases' => PurchaseRequisition::where('status', PurchaseRequisition::STATUS_CANCELLED)->count(),
-            'non_lowest_quotes' => QuotationRecommendation::whereHas('selectedQuotation', fn ($q) => $q->where('is_lowest', false))->count(),
+            'non_lowest_quotes' => QuotationRecommendation::whereNotNull('non_lowest_price_reason')
+                ->where('non_lowest_price_reason', '!=', '')
+                ->count(),
             'rejected_grns' => GoodsReceiptNote::where('status', GoodsReceiptNote::STATUS_REJECTED)->count(),
         ];
 
