@@ -1,0 +1,21 @@
+# Local environment files may contain credentials.
+.env*
+!.env.example
+
+# Dependencies and generated output.
+node_modules/
+.next/
+.next-validation/
+.next-domain/
+out/
+deployment/infinityfree/htdocs/
+deployment/infinityfree/milanolodge-htdocs.zip
+coverage/
+*.tsbuildinfo
+
+# Local tooling and operating-system files.
+.DS_Store
+*.log
+__pycache__/
+*.py[cod]
+.venv/

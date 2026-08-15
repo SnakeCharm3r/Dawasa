@@ -1,0 +1,11 @@
+{
+  "domain_name": "milanolodge.gt.tc",
+  "https_origin": "https://milanolodge.gt.tc",
+  "document_root": "htdocs",
+  "account": "if0_42054498",
+  "ip_address": "185.27.134.133",
+  "created_at": "2026-05-30",
+  "runtime": "InfinityFree static/PHP hosting",
+  "application_requirement": "Static frontend with Supabase Auth, Database, and Edge Functions",
+  "deployment_status": "edge_api_migrated_static_package_ready"
+}

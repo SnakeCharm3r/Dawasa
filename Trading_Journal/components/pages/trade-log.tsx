@@ -1,0 +1,491 @@
+'use client';
+
+import { useMemo, useRef, useState } from 'react';
+import {
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  Plus,
+  Search,
+  Upload,
+  Download,
+  Pencil,
+  Trash2,
+  AlertTriangle,
+  FileText,
+  FileSpreadsheet,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { TradeForm, type TradeFormValues } from '@/components/trade-form';
+import { tradesWithCalcToCsv, downloadCsv } from '@/lib/csv';
+import { fmtMoney, fmtNum, fmtPct, fmtPrice, fmtDate, moneyColor } from '@/lib/format';
+import { cn } from '@/lib/utils';
+import type { Trade, TradeWithCalc, WinLoss } from '@/lib/types';
+import type { useJournalData } from '@/hooks/use-journal-data';
+
+type Journal = ReturnType<typeof useJournalData>;
+
+type SortKey = 'date' | 'trade_number' | 'symbol' | 'netPnl' | 'rMultiple' | 'pnlPercent' | 'accountBalance';
+
+const COLUMNS: { key: SortKey | 'static'; label: string; className?: string }[] = [
+  { key: 'trade_number', label: '#' },
+  { key: 'date', label: 'Date' },
+  { key: 'static', label: 'Symbol' },
+  { key: 'static', label: 'Dir' },
+  { key: 'static', label: 'Strategy' },
+  { key: 'static', label: 'Entry' },
+  { key: 'static', label: 'Exit' },
+  { key: 'static', label: 'Risk $' },
+  { key: 'static', label: 'Risk %' },
+  { key: 'static', label: 'Pips' },
+  { key: 'static', label: 'Gross' },
+  { key: 'netPnl', label: 'Net P&L' },
+  { key: 'rMultiple', label: 'R' },
+  { key: 'pnlPercent', label: 'P&L %' },
+  { key: 'accountBalance', label: 'Balance' },
+  { key: 'static', label: 'W/L' },
+  { key: 'static', label: '' },
+];
+
+export function TradeLogPage({ journal }: { journal: Journal }) {
+  const { tradesWithCalc, strategies, trades, addTrade, updateTrade, deleteTrade, settings, profile } = journal;
+
+  const [search, setSearch] = useState('');
+  const [filterSymbol, setFilterSymbol] = useState('all');
+  const [filterStrategy, setFilterStrategy] = useState('all');
+  const [filterDirection, setFilterDirection] = useState('all');
+  const [filterWinLoss, setFilterWinLoss] = useState('all');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [sortKey, setSortKey] = useState<SortKey>('date');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState<Trade | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [importMsg, setImportMsg] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const symbols = useMemo(() => Array.from(new Set(trades.map((t) => t.symbol))).sort(), [trades]);
+
+  const filtered = useMemo(() => {
+    let list = tradesWithCalc;
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter(
+        (t) =>
+          (t.setup_notes ?? '').toLowerCase().includes(q) ||
+          (t.lessons_learned ?? '').toLowerCase().includes(q) ||
+          t.symbol.toLowerCase().includes(q)
+      );
+    }
+    if (filterSymbol !== 'all') list = list.filter((t) => t.symbol === filterSymbol);
+    if (filterStrategy !== 'all') list = list.filter((t) => t.strategy === filterStrategy);
+    if (filterDirection !== 'all') list = list.filter((t) => t.direction === filterDirection);
+    if (filterWinLoss !== 'all') list = list.filter((t) => t.calc.winLoss === filterWinLoss);
+    if (dateFrom) list = list.filter((t) => t.date >= dateFrom);
+    if (dateTo) list = list.filter((t) => t.date <= dateTo);
+
+    const sorted = [...list].sort((a, b) => {
+      let av: number | string;
+      let bv: number | string;
+      switch (sortKey) {
+        case 'date': av = a.date; bv = b.date; break;
+        case 'trade_number': av = a.trade_number; bv = b.trade_number; break;
+        case 'symbol': av = a.symbol; bv = b.symbol; break;
+        case 'netPnl': av = a.calc.netPnl; bv = b.calc.netPnl; break;
+        case 'rMultiple': av = a.calc.rMultiple ?? -Infinity; bv = b.calc.rMultiple ?? -Infinity; break;
+        case 'pnlPercent': av = a.calc.pnlPercent ?? -Infinity; bv = b.calc.pnlPercent ?? -Infinity; break;
+        case 'accountBalance': av = a.calc.accountBalance; bv = b.calc.accountBalance; break;
+        default: av = 0; bv = 0;
+      }
+      if (av < bv) return sortDir === 'asc' ? -1 : 1;
+      if (av > bv) return sortDir === 'asc' ? 1 : -1;
+      return 0;
+    });
+    return sorted;
+  }, [tradesWithCalc, search, filterSymbol, filterStrategy, filterDirection, filterWinLoss, dateFrom, dateTo, sortKey, sortDir]);
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir('desc');
+    }
+  };
+
+  const handleSave = async (values: TradeFormValues) => {
+    if (editing) {
+      await updateTrade(editing.id, values);
+    } else {
+      await addTrade(values);
+    }
+    setEditing(null);
+  };
+
+  const handleExport = () => {
+    const csv = tradesWithCalcToCsv(tradesWithCalc);
+    downloadCsv(`trade-journal-${new Date().toISOString().slice(0, 10)}.csv`, csv);
+  };
+
+  const handleImportClick = () => fileRef.current?.click();
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportMsg(null);
+    setImporting(true);
+    try {
+      // Spreadsheet support is relatively large, so load it only when a user imports.
+      const { parseTradeHistoryFile } = await import('@/lib/trade-history-import');
+      const firstNumber = Math.max(0, ...trades.map((trade) => trade.trade_number)) + 1;
+      const history = await parseTradeHistoryFile(file, firstNumber);
+      const existingPositions = new Set(
+        trades.map((trade) => trade.broker_position_id).filter((id): id is string => Boolean(id))
+      );
+      let imported = 0;
+      let duplicates = 0;
+      let failed = 0;
+      const importedTrades: Trade[] = [];
+      for (const input of history.trades) {
+        if (input.broker_position_id && existingPositions.has(input.broker_position_id)) {
+          duplicates++;
+          continue;
+        }
+        try {
+          const savedTrade = await addTrade(input);
+          importedTrades.push(savedTrade);
+          imported++;
+          if (input.broker_position_id) existingPositions.add(input.broker_position_id);
+        } catch {
+          failed++;
+        }
+      }
+      let backupMessage = '';
+      try {
+        const { saveAndDownloadJournalBackup } = await import('@/lib/local-journal-backup');
+        const createdAt = new Date().toISOString();
+        await saveAndDownloadJournalBackup({
+          schema_version: 1,
+          backup_type: 'post-report-import',
+          created_at: createdAt,
+          source_report: {
+            name: file.name,
+            type: file.type || 'application/octet-stream',
+            size: file.size,
+            last_modified: new Date(file.lastModified).toISOString(),
+            detected_format: history.format,
+          },
+          import_result: {
+            parsed: history.trades.length,
+            imported,
+            duplicates,
+            failed,
+            warnings: history.warnings,
+          },
+          database: {
+            profile,
+            settings,
+            strategies,
+            trades: [...trades, ...importedTrades],
+          },
+        });
+        backupMessage = 'A JSON database backup was saved in this browser and downloaded.';
+      } catch {
+        backupMessage = 'Trades were imported, but the local JSON backup could not be created.';
+      }
+      const details = [
+        `${history.format}: imported ${imported} of ${history.trades.length} trades.`,
+        duplicates ? `${duplicates} duplicate${duplicates === 1 ? '' : 's'} skipped.` : '',
+        failed ? `${failed} row${failed === 1 ? '' : 's'} failed to save.` : '',
+        history.warnings.length ? `${history.warnings.length} parsing warning${history.warnings.length === 1 ? '' : 's'}.` : '',
+        backupMessage,
+      ].filter(Boolean).join(' ');
+      setImportMsg(details);
+    } catch (error) {
+      setImportMsg(error instanceof Error ? error.message : 'Could not read that trade-history file.');
+    } finally {
+      setImporting(false);
+      e.target.value = '';
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteId) return;
+    await deleteTrade(deleteId);
+    setDeleteId(null);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Trade Log</h1>
+          <p className="text-sm text-muted-foreground">
+            {filtered.length} of {tradesWithCalc.length} trades
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" onClick={handleImportClick} disabled={importing}>
+            <Upload className="mr-1.5 h-3.5 w-3.5" /> {importing ? 'Importing…' : 'Upload history'}
+          </Button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".xls,.xlsx,.csv,.ods,.fods,.html,.htm,.pdf,.odp"
+            className="hidden"
+            onChange={handleImport}
+          />
+          <Button variant="outline" size="sm" onClick={handleExport} disabled={tradesWithCalc.length === 0}>
+            <Download className="mr-1.5 h-3.5 w-3.5" /> Export
+          </Button>
+          <Button size="sm" onClick={() => { setEditing(null); setFormOpen(true); }}>
+            <Plus className="mr-1.5 h-3.5 w-3.5" /> Add Trade
+          </Button>
+        </div>
+      </div>
+
+      {importMsg && (
+        <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          <FileText className="mr-1.5 inline h-3.5 w-3.5" />
+          {importMsg}
+        </div>
+      )}
+
+      <Card className="flex items-start gap-3 border-dashed p-4">
+        <FileSpreadsheet className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
+        <div>
+          <p className="text-sm font-medium">Import without the MT5 connector</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Upload an MT5 closed-position report or journal spreadsheet in XLS, XLSX, CSV, ODS, FODS, or HTML format. HTML-based MT5 reports saved with a PDF extension are also detected. Linux users should export an ODS spreadsheet; ODP presentation files will only work when they contain a readable table.
+          </p>
+        </div>
+      </Card>
+
+      <Card className="p-3">
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
+          <div className="relative xl:col-span-2">
+            <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search notes, lessons, symbol…"
+              className="pl-8"
+            />
+          </div>
+          <FilterSelect label="Symbol" value={filterSymbol} onChange={setFilterSymbol} options={symbols} />
+          <FilterSelect label="Strategy" value={filterStrategy} onChange={setFilterStrategy} options={strategies.map((s) => s.name)} />
+          <FilterSelect label="Direction" value={filterDirection} onChange={setFilterDirection} options={['Long', 'Short']} />
+          <FilterSelect label="Result" value={filterWinLoss} onChange={setFilterWinLoss} options={['Win', 'Loss', 'Breakeven']} />
+          <div>
+            <Label className="sr-only">From date</Label>
+            <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+          </div>
+          <div>
+            <Label className="sr-only">To date</Label>
+            <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+          </div>
+          {(search || filterSymbol !== 'all' || filterStrategy !== 'all' || filterDirection !== 'all' || filterWinLoss !== 'all' || dateFrom || dateTo) && (
+            <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setFilterSymbol('all'); setFilterStrategy('all'); setFilterDirection('all'); setFilterWinLoss('all'); setDateFrom(''); setDateTo(''); }}>
+              Clear filters
+            </Button>
+          )}
+        </div>
+      </Card>
+
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full min-w-[1100px] text-sm">
+          <thead className="sticky top-0 bg-muted/60 backdrop-blur-sm">
+            <tr className="border-b border-border">
+              {COLUMNS.map((col, i) => {
+                const isSort = col.key !== 'static';
+                return (
+                  <th
+                    key={i}
+                    className={cn('px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground', col.className)}
+                  >
+                    {isSort ? (
+                      <button
+                        onClick={() => toggleSort(col.key as SortKey)}
+                        className="inline-flex items-center gap-1 hover:text-foreground"
+                      >
+                        {col.label}
+                        <SortIcon active={sortKey === col.key} dir={sortDir} />
+                      </button>
+                    ) : (
+                      col.label
+                    )}
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 ? (
+              <tr>
+                <td colSpan={COLUMNS.length} className="px-3 py-16 text-center text-sm text-muted-foreground">
+                  No trades match your filters. Click <span className="font-medium text-foreground">Add Trade</span> to get started.
+                </td>
+              </tr>
+            ) : (
+              filtered.map((t) => (
+                <TradeRow
+                  key={t.id}
+                  trade={t}
+                  onEdit={() => { setEditing(t); setFormOpen(true); }}
+                  onDelete={() => setDeleteId(t.id)}
+                  threshold={settings.risk_warning_threshold}
+                />
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <TradeForm
+        open={formOpen}
+        onOpenChange={setFormOpen}
+        strategies={strategies}
+        trades={trades}
+        editing={editing}
+        onSave={handleSave}
+      />
+
+      <Dialog open={!!deleteId} onOpenChange={(o) => !o && setDeleteId(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete trade?</DialogTitle>
+            <DialogDescription>This trade will be permanently removed from your journal. This can&apos;t be undone.</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteId(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={confirmDelete}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function TradeRow({
+  trade,
+  onEdit,
+  onDelete,
+  threshold,
+}: {
+  trade: TradeWithCalc;
+  onEdit: () => void;
+  onDelete: () => void;
+  threshold: number;
+}) {
+  const c = trade.calc;
+  const isWin = c.winLoss === 'Win';
+  const isLoss = c.winLoss === 'Loss';
+  const rowBg = isWin
+    ? 'bg-emerald-500/[0.04] hover:bg-emerald-500/[0.08]'
+    : isLoss
+    ? 'bg-red-500/[0.04] hover:bg-red-500/[0.08]'
+    : 'hover:bg-muted/40';
+
+  return (
+    <tr className={cn('border-b border-border/50 transition-colors', rowBg)}>
+      <td className="px-3 py-2.5 tabular-nums text-muted-foreground">{trade.trade_number}</td>
+      <td className="whitespace-nowrap px-3 py-2.5 text-muted-foreground">{fmtDate(trade.date)}</td>
+      <td className="px-3 py-2.5 font-medium">
+        <div>{trade.symbol}</div>
+        {trade.source === 'mt5' && <span className="text-[9px] font-medium uppercase tracking-wide text-blue-600 dark:text-blue-400">Exness MT5</span>}
+      </td>
+      <td className="px-3 py-2.5">
+        <span className={cn('text-xs font-semibold', trade.direction === 'Long' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400')}>
+          {trade.direction === 'Long' ? 'L' : 'S'}
+        </span>
+      </td>
+      <td className="px-3 py-2.5 text-muted-foreground">{trade.strategy}</td>
+      <td className="px-3 py-2.5 tabular-nums">{fmtPrice(trade.entry_price)}</td>
+      <td className="px-3 py-2.5 tabular-nums">{fmtPrice(trade.exit_price)}</td>
+      <td className="px-3 py-2.5 tabular-nums text-muted-foreground">{fmtMoney(c.riskDollars)}</td>
+      <td className="px-3 py-2.5 tabular-nums">
+        {c.riskPercent != null ? (
+          <span className={cn('inline-flex items-center gap-1', c.riskFlagged && 'text-red-600 dark:text-red-400 font-medium')}>
+            {c.riskFlagged && <AlertTriangle className="h-3 w-3" />}
+            {fmtPct(c.riskPercent, 2)}
+          </span>
+        ) : '—'}
+      </td>
+      <td className="px-3 py-2.5 tabular-nums text-muted-foreground">{c.pipsGainedLost != null ? fmtNum(c.pipsGainedLost, 1) : '—'}</td>
+      <td className="px-3 py-2.5 tabular-nums text-muted-foreground">{fmtMoney(c.grossPnl, { sign: true })}</td>
+      <td className={cn('px-3 py-2.5 font-semibold tabular-nums', moneyColor(c.netPnl))}>{fmtMoney(c.netPnl, { sign: true })}</td>
+      <td className={cn('px-3 py-2.5 tabular-nums', moneyColor(c.rMultiple ?? 0))}>{c.rMultiple != null ? fmtNum(c.rMultiple) : '—'}</td>
+      <td className={cn('px-3 py-2.5 tabular-nums', moneyColor(c.pnlPercent ?? 0))}>{c.pnlPercent != null ? fmtPct(c.pnlPercent, 2) : '—'}</td>
+      <td className="px-3 py-2.5 tabular-nums">{fmtMoney(c.accountBalance)}</td>
+      <td className="px-3 py-2.5"><WinLossBadge wl={c.winLoss} /></td>
+      <td className="px-3 py-2.5">
+        <div className="flex items-center gap-1">
+          <button onClick={onEdit} className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Edit">
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+          <button onClick={onDelete} className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive" aria-label="Delete">
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+function WinLossBadge({ wl }: { wl: WinLoss }) {
+  const styles: Record<WinLoss, string> = {
+    Win: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
+    Loss: 'bg-red-500/15 text-red-600 dark:text-red-400',
+    Breakeven: 'bg-muted text-muted-foreground',
+  };
+  return <Badge variant="secondary" className={cn('text-[10px] font-semibold', styles[wl])}>{wl === 'Breakeven' ? 'BE' : wl}</Badge>;
+}
+
+function SortIcon({ active, dir }: { active: boolean; dir: 'asc' | 'desc' }) {
+  if (!active) return <ArrowUpDown className="h-3 w-3 opacity-40" />;
+  return dir === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />;
+}
+
+function FilterSelect({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: string[];
+}) {
+  return (
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger className="h-9"><SelectValue placeholder={label} /></SelectTrigger>
+      <SelectContent>
+        <SelectItem value="all">All {label.toLowerCase()}</SelectItem>
+        {options.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+      </SelectContent>
+    </Select>
+  );
+}
