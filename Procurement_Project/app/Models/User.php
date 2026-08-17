@@ -2,20 +2,22 @@
 
 namespace App\Models;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
+use Illuminate\Auth\MustVerifyEmail as MustVerifyEmailTrait;
+use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Spatie\Permission\Traits\HasRoles;
 
-class User extends Authenticatable
+class User extends Authenticatable implements MustVerifyEmail
 {
     /** @use HasFactory<UserFactory> */
-    use HasFactory, Notifiable, HasRoles;
+    use HasFactory, MustVerifyEmailTrait, Notifiable, HasRoles;
 
     protected $guard_name = 'web';
 
@@ -76,6 +78,33 @@ class User extends Authenticatable
         return $this->hasMany(User::class, 'line_manager_id');
     }
 
+    public function assignedLineManagerInDepartment(): ?self
+    {
+        if ($this->hasAnyRole(['line_manager', 'department_head'])) {
+            return $this;
+        }
+
+        $lineManager = $this->lineManager()->with('roles')->first();
+
+        if (! $lineManager
+            || ! $lineManager->is_active
+            || ! $lineManager->is_line_manager
+            || ! $lineManager->hasAnyRole(['line_manager', 'department_head'])
+            || $lineManager->department_id !== $this->department_id) {
+            return null;
+        }
+
+        return $lineManager;
+    }
+
+    public function canManageDepartmentUser(User $user): bool
+    {
+        return $this->is_active
+            && $this->is_line_manager
+            && $this->hasAnyRole(['line_manager', 'department_head'])
+            && $this->department_id === $user->department_id;
+    }
+
     public function proposedBudgets(): HasMany
     {
         return $this->hasMany(EntityBudget::class, 'proposed_by');
@@ -105,5 +134,10 @@ class User extends Authenticatable
         }
 
         return false;
+    }
+
+    public function supplier(): HasOne
+    {
+        return $this->hasOne(Supplier::class);
     }
 }

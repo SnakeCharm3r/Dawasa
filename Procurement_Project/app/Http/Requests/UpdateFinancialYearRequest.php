@@ -4,10 +4,10 @@ namespace App\Http\Requests;
 
 use App\Models\FinancialYear;
 use Illuminate\Contracts\Validation\ValidationRule;
-use Illuminate\Foundation\Http\FormRequest;
+use App\Http\Requests\CeoAwareFormRequest;
 use Illuminate\Validation\Rule;
 
-class UpdateFinancialYearRequest extends FormRequest
+class UpdateFinancialYearRequest extends CeoAwareFormRequest
 {
     public function authorize(): bool
     {

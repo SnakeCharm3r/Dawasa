@@ -3,9 +3,9 @@
 namespace App\Http\Requests;
 
 use App\Models\SupplierQuotation;
-use Illuminate\Foundation\Http\FormRequest;
+use App\Http\Requests\CeoAwareFormRequest;
 
-class UpdateQuotationRecommendationRequest extends FormRequest
+class UpdateQuotationRecommendationRequest extends CeoAwareFormRequest
 {
     public function authorize(): bool
     {

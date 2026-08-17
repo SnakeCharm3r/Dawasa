@@ -2,6 +2,7 @@
 
 import { InvoiceDialog, ProformaDialog, ReceiptDialog, RequisitionDialog, SupplierDialog } from "@/components/create-dialogs";
 import { useAuth } from "@/components/auth-provider";
+import { useEntityScope } from "@/components/entity-scope-provider";
 import { PaymentVoucherModal } from "@/components/payment-voucher-modal";
 import { RequisitionWorkspaceModal } from "@/components/requisition-workspace-modal";
 import { api, ApiError, collectionFrom, valueAt } from "@/lib/api";
@@ -13,6 +14,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 export function ResourcePage({ moduleKey }: { moduleKey: string }) {
   const config = modules[moduleKey];
   const { user } = useAuth();
+  const { selectedEntityId } = useEntityScope();
   const [rows, setRows] = useState<JsonRecord[]>([]);
   const [pagination, setPagination] = useState<Pagination>({});
   const [loading, setLoading] = useState(true);
@@ -34,6 +36,7 @@ export function ResourcePage({ moduleKey }: { moduleKey: string }) {
     const params = new URLSearchParams({ page: String(page), per_page: "15" });
     if (search) params.set("search", search);
     if (status) params.set("status", status);
+    if (selectedEntityId) params.set("business_entity_id", selectedEntityId);
     try {
       const payload = await api<JsonRecord>(`${config.endpoint}?${params}`);
       const collection = collectionFrom(payload);
@@ -45,20 +48,23 @@ export function ResourcePage({ moduleKey }: { moduleKey: string }) {
     } finally {
       setLoading(false);
     }
-  }, [config, page, search, status]);
+  }, [config, page, search, selectedEntityId, status]);
+
+  useEffect(() => { setPage(1); setSelected(null); }, [selectedEntityId]);
 
   useEffect(() => { void load(); }, [load]);
 
   const canCreate = useMemo(() => {
     if (!user || !config?.create) return false;
+    if (user.roles.includes("ceo")) return true;
     if (["supplier", "proforma"].includes(config.create)) return user.roles.some((role) => ["super_admin", "procurement_officer"].includes(role));
     if (config.create === "receipt") return user.roles.some((role) => ["super_admin", "procurement_officer", "storekeeper", "receiving_officer"].includes(role));
     if (config.create === "invoice") return user.roles.some((role) => ["super_admin", "accountant"].includes(role));
-    return user.roles.includes("requester");
+    return user.roles.some((role) => ["requester", "line_manager", "department_head"].includes(role));
   }, [config, user]);
 
   if (!config) return <div className="not-found"><h1>Module not found</h1><p>This workspace module is not configured.</p></div>;
-  if (config.roles && user && !config.roles.some((role) => user.roles.includes(role))) return <div className="not-found"><h1>Access restricted</h1><p>Your role does not include access to this register.</p></div>;
+  if (config.roles && user && !user.roles.includes("ceo") && !config.roles.some((role) => user.roles.includes(role))) return <div className="not-found"><h1>Access restricted</h1><p>Your role does not include access to this register.</p></div>;
 
   function submitSearch(event: FormEvent) {
     event.preventDefault();

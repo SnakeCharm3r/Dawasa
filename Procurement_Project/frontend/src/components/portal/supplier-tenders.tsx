@@ -1,0 +1,8 @@
+"use client";
+import { EmptyState, LoadingState, StatusBadge } from "@/components/ui/portal-ui";
+import { api, collectionFrom } from "@/lib/api";
+import { formatDate, statusLabel } from "@/lib/formatters";
+import type { Tender } from "@/lib/portal-types";
+import Link from "next/link";
+import { useEffect, useState } from "react";
+export function SupplierTenders() { const [rows, setRows] = useState<Tender[] | null>(null); useEffect(() => { void api("supplier-portal/tenders").then((value) => setRows(collectionFrom(value).rows as Tender[])); }, []); return <div className="supplier-page"><header className="supplier-page-heading"><div><span className="eyebrow">Matched opportunities</span><h1>Available tenders</h1><p>Public opportunities in your categories and restricted invitations sent to your company.</p></div></header><section className="supplier-panel">{rows === null ? <LoadingState /> : rows.length === 0 ? <EmptyState title="No matching opportunities" copy="New tenders matching your approved categories will appear here." /> : <div className="portal-table-wrap"><table className="portal-table"><thead><tr><th>Tender</th><th>Category</th><th>Type</th><th>Deadline</th><th>Status</th><th /></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td><strong>{row.tender_number}</strong><small>{row.title}</small></td><td>{row.category?.name ?? "General"}</td><td>{statusLabel(row.tender_type)}</td><td>{formatDate(row.submission_deadline)}</td><td><StatusBadge status={row.status} /></td><td><Link className="table-action" href={`/supplier-tenders/${row.id}`}>Respond →</Link></td></tr>)}</tbody></table></div>}</section></div>; }

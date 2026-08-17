@@ -3,6 +3,9 @@
 use App\Http\Controllers\Admin\BusinessEntityController;
 use App\Http\Controllers\Admin\DepartmentController;
 use App\Http\Controllers\Admin\SupplierController;
+use App\Http\Controllers\Admin\SupplierVerificationController;
+use App\Http\Controllers\Admin\SupplierPerformanceController;
+use App\Http\Controllers\Admin\TenderController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\Budget\BudgetApprovalController;
@@ -28,17 +31,53 @@ use App\Http\Controllers\Requisition\RequisitionAttachmentController;
 use App\Http\Controllers\Requisition\SupplierInvoiceController;
 use App\Http\Controllers\Requisition\SupplierQuotationController;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Portal\PublicTenderController;
+use App\Http\Controllers\Portal\SupplierPortalController;
+use App\Http\Controllers\Portal\SupplierRegistrationController;
+use App\Http\Controllers\Portal\TenderResponseController;
+use App\Http\Controllers\Portal\SupplierEmailVerificationController;
 
 Route::get('/', function () {
     return view('welcome');
 });
 
+Route::prefix('portal')->name('portal.')->group(function () {
+    Route::get('tenders', [PublicTenderController::class, 'index'])->name('tenders.index');
+    Route::get('tenders/{tenderNumber}', [PublicTenderController::class, 'show'])->name('tenders.show');
+    Route::get('supplier-categories', [PublicTenderController::class, 'categories'])->name('categories.index');
+    Route::post('supplier-registration', [SupplierRegistrationController::class, 'store'])->middleware('throttle:5,1')->name('supplier-registration');
+});
+
+Route::middleware('auth')->prefix('supplier-portal')->name('supplier-portal.')->group(function () {
+    Route::post('email/verification-notification', [SupplierEmailVerificationController::class, 'resend'])->middleware('throttle:6,1')->name('verification.send');
+    Route::get('dashboard', [SupplierPortalController::class, 'dashboard'])->name('dashboard');
+    Route::get('profile', [SupplierPortalController::class, 'profile'])->name('profile');
+    Route::patch('profile', [SupplierPortalController::class, 'updateProfile'])->name('profile.update');
+    Route::get('documents', [SupplierPortalController::class, 'documents'])->name('documents.index');
+    Route::post('documents', [SupplierPortalController::class, 'storeDocument'])->name('documents.store');
+    Route::get('documents/{document}/download', [SupplierPortalController::class, 'downloadDocument'])->name('documents.download');
+    Route::get('tenders', [SupplierPortalController::class, 'tenders'])->name('tenders.index');
+    Route::get('tenders/{tender}', [SupplierPortalController::class, 'showTender'])->name('tenders.show');
+    Route::get('tender-responses', [TenderResponseController::class, 'index'])->name('responses.index');
+    Route::post('tenders/{tender}/responses', [TenderResponseController::class, 'store'])->name('responses.store');
+    Route::get('tender-responses/{tenderResponse}', [TenderResponseController::class, 'show'])->name('responses.show');
+    Route::patch('tender-responses/{tenderResponse}', [TenderResponseController::class, 'update'])->name('responses.update');
+    Route::post('tender-responses/{tenderResponse}/submit', [TenderResponseController::class, 'submit'])->name('responses.submit');
+    Route::post('tender-responses/{tenderResponse}/documents', [TenderResponseController::class, 'storeDocument'])->name('response-documents.store');
+    Route::get('tender-response-documents/{document}/download', [TenderResponseController::class, 'downloadDocument'])->name('response-documents.download');
+});
+
 Route::prefix('auth')->name('auth.')->group(function () {
     Route::get('csrf', [AuthController::class, 'csrf'])->name('csrf');
     Route::post('login', [AuthController::class, 'login'])->middleware('throttle:6,1')->name('login');
+    Route::get('demo-users', [AuthController::class, 'demoUsers'])->name('demo-users');
+    Route::post('demo-login', [AuthController::class, 'demoLogin'])->middleware('throttle:30,1')->name('demo-login');
     Route::get('me', [AuthController::class, 'me'])->middleware('auth')->name('me');
     Route::post('logout', [AuthController::class, 'logout'])->middleware('auth')->name('logout');
 });
+
+Route::get('email/verify/{id}/{hash}', [SupplierEmailVerificationController::class, 'verify'])
+    ->middleware(['auth', 'signed'])->name('verification.verify');
 
 Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () {
     Route::resource('entities', BusinessEntityController::class)
@@ -59,6 +98,27 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
     Route::resource('suppliers', SupplierController::class)->except(['create', 'edit']);
     Route::patch('suppliers/{supplier}/activate', [SupplierController::class, 'activate'])->name('suppliers.activate');
     Route::patch('suppliers/{supplier}/deactivate', [SupplierController::class, 'deactivate'])->name('suppliers.deactivate');
+    Route::get('supplier-applications', [SupplierVerificationController::class, 'applications'])->name('supplier-applications.index');
+    Route::post('suppliers/{supplier}/verification-decision', [SupplierVerificationController::class, 'decision'])->name('suppliers.verification-decision');
+    Route::post('suppliers/{supplier}/preferred', [SupplierVerificationController::class, 'preferred'])->name('suppliers.preferred');
+    Route::post('supplier-documents/{document}/decision', [SupplierVerificationController::class, 'documentDecision'])->name('supplier-documents.decision');
+    Route::get('supplier-documents/{document}/download', [SupplierVerificationController::class, 'download'])->name('supplier-documents.download');
+    Route::get('supplier-compliance-alerts', [SupplierPerformanceController::class, 'alerts'])->name('suppliers.compliance-alerts');
+    Route::get('suppliers/{supplier}/performance', [SupplierPerformanceController::class, 'show'])->name('suppliers.performance');
+    Route::post('suppliers/{supplier}/performance/calculate', [SupplierPerformanceController::class, 'calculate'])->name('suppliers.performance.calculate');
+    Route::post('suppliers/{supplier}/performance/incidents', [SupplierPerformanceController::class, 'incident'])->name('suppliers.performance.incidents');
+    Route::post('supplier-performance-incidents/{incident}/resolve', [SupplierPerformanceController::class, 'resolveIncident'])->name('suppliers.performance.incidents.resolve');
+    Route::post('suppliers/{supplier}/performance/override', [SupplierPerformanceController::class, 'override'])->name('suppliers.performance.override');
+
+    Route::apiResource('tenders', TenderController::class)->except(['destroy']);
+    Route::post('tenders/{tender}/submit-publication', [TenderController::class, 'submitPublication'])->name('tenders.submit-publication');
+    Route::post('tenders/{tender}/publish', [TenderController::class, 'publish'])->name('tenders.publish');
+    Route::post('tenders/{tender}/invite', [TenderController::class, 'invite'])->name('tenders.invite');
+    Route::post('tenders/{tender}/close', [TenderController::class, 'close'])->name('tenders.close');
+    Route::post('tenders/{tender}/cancel', [TenderController::class, 'cancel'])->name('tenders.cancel');
+    Route::get('tenders/{tender}/responses', [TenderController::class, 'responses'])->name('tenders.responses');
+    Route::post('tender-responses/{tenderResponse}/compliance', [TenderController::class, 'compliance'])->name('tender-responses.compliance');
+    Route::get('tender-response-documents/{document}/download', [TenderController::class, 'downloadResponseDocument'])->name('tender-response-documents.download');
 
     Route::resource('financial-years', FinancialYearController::class)
         ->parameters(['financial-years' => 'financialYear'])
@@ -71,6 +131,8 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
     Route::post('entity-budgets/{entityBudget}/submit', [EntityBudgetController::class, 'submit'])->name('entity-budgets.submit');
     Route::post('entity-budgets/{entityBudget}/transactions', [EntityBudgetController::class, 'storeTransaction'])->name('entity-budgets.transactions.store');
     Route::get('entity-budgets/{entityBudget}/history', [EntityBudgetController::class, 'history'])->name('entity-budgets.history');
+
+    Route::get('requisition-budget-check', [PurchaseRequisitionController::class, 'budgetCheck'])->name('purchase-requisitions.budget-check');
 
     Route::resource('purchase-requisitions', PurchaseRequisitionController::class)
         ->parameters(['purchase-requisitions' => 'purchaseRequisition'])

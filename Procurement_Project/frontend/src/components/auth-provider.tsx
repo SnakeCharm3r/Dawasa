@@ -16,8 +16,10 @@ type AuthContextValue = {
   user: AuthUser | null;
   loading: boolean;
   login: (email: string, password: string, remember: boolean) => Promise<void>;
+  demoLogin: (account: string) => Promise<void>;
   logout: () => Promise<void>;
   hasRole: (...roles: string[]) => boolean;
+  refresh: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -47,15 +49,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [refresh]);
 
   useEffect(() => {
-    if (loading) return;
-    if (!user && pathname !== "/login") router.replace("/login");
-    if (user && pathname === "/login") router.replace("/dashboard");
+    if (loading || !user) return;
+    if (["/login", "/supplier-login"].includes(pathname)) {
+      router.replace(user.roles.includes("supplier") ? "/supplier-dashboard" : "/dashboard");
+    }
   }, [loading, pathname, router, user]);
 
   const login = useCallback(async (email: string, password: string, remember: boolean) => {
     const response = await api<{ data: AuthUser }>("auth/login", {
       method: "POST",
       body: JSON.stringify({ email, password, remember }),
+    });
+    setUser(response.data);
+    router.replace(response.data.roles.includes("supplier") ? "/supplier-dashboard" : "/dashboard");
+    router.refresh();
+  }, [router]);
+
+  const demoLogin = useCallback(async (account: string) => {
+    const response = await api<{ data: AuthUser }>("auth/demo-login", {
+      method: "POST",
+      body: JSON.stringify({ account }),
     });
     setUser(response.data);
     router.replace("/dashboard");
@@ -72,9 +85,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     user,
     loading,
     login,
+    demoLogin,
     logout,
-    hasRole: (...roles: string[]) => Boolean(user?.roles.some((role) => roles.includes(role))),
-  }), [loading, login, logout, user]);
+    hasRole: (...roles: string[]) => Boolean(user?.roles.includes("ceo") || user?.roles.some((role) => roles.includes(role))),
+    refresh,
+  }), [demoLogin, loading, login, logout, refresh, user]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

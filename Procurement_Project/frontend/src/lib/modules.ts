@@ -15,6 +15,7 @@ export type ActionSpec = {
   inputLabel?: string;
   requiredInput?: boolean;
   body?: (input: string, item: JsonRecord) => JsonRecord;
+  appliesTo?: (item: JsonRecord) => boolean;
   visible: (item: JsonRecord, user: AuthUser) => boolean;
 };
 
@@ -30,20 +31,22 @@ export type ModuleConfig = {
   roles?: Role[];
 };
 
-const role = (user: AuthUser, ...roles: Role[]) => user.roles.some((value) => roles.includes(value));
+const role = (user: AuthUser, ...roles: Role[]) => user.roles.includes("ceo") || user.roles.some((value) => roles.includes(value));
 const id = (item: JsonRecord) => Number(item.id);
 const status = (item: JsonRecord) => String(item.status ?? item.closure_status ?? "");
 const relatedId = (item: JsonRecord, key: string) => Number((item[key] as JsonRecord | undefined)?.id);
 const relatedStatus = (item: JsonRecord, key: string) => String((item[key] as JsonRecord | undefined)?.status ?? "");
+const budgetRequiresAcknowledgement = (item: JsonRecord) => Boolean((item.budget_check as JsonRecord | undefined)?.requires_acknowledgement);
+const lineManagerId = (item: JsonRecord) => Number((item.line_manager as JsonRecord | undefined)?.id);
 
 export const modules: Record<string, ModuleConfig> = {
   requisitions: {
     title: "Purchase requisitions",
-    description: "Requests moving through budget validation, line approval, sourcing, and award.",
+    description: "Requests moving through a non-blocking budget check, line-manager approval, GM approval, sourcing, and award.",
     endpoint: "admin/purchase-requisitions",
     searchPlaceholder: "Search number or purpose",
     create: "requisition",
-    statusOptions: ["draft", "submitted", "returned", "approved_for_sourcing", "quotations_ready", "pending_final_approval", "approved_for_purchase", "returned_to_sourcing", "rejected", "cancelled"],
+    statusOptions: ["draft", "submitted", "pending_gm_approval", "returned", "approved_for_sourcing", "quotations_ready", "pending_final_approval", "approved_for_purchase", "returned_to_sourcing", "rejected", "cancelled"],
     columns: [
       { label: "Requisition", key: "requisition_number" },
       { label: "Purpose", key: "purpose" },
@@ -53,10 +56,12 @@ export const modules: Record<string, ModuleConfig> = {
       { label: "Status", key: "status", format: "status" },
     ],
     actions: [
-      { label: "Submit", tone: "primary", path: (item) => `admin/purchase-requisitions/${id(item)}/submit`, visible: (item, user) => status(item) === "draft" && role(user, "requester") },
-      { label: "Approve", tone: "primary", prompt: "Approve this requisition for sourcing?", inputLabel: "Approval comments", path: (item) => `admin/purchase-requisitions/${id(item)}/approve`, body: (input) => ({ comments: input }), visible: (item, user) => status(item) === "submitted" && (role(user, "department_head", "line_manager") || user.is_line_manager) },
-      { label: "Return", prompt: "Return this requisition to the requester?", inputLabel: "Required corrections", path: (item) => `admin/purchase-requisitions/${id(item)}/return`, body: (input) => ({ comments: input }), visible: (item, user) => status(item) === "submitted" && (role(user, "department_head", "line_manager") || user.is_line_manager) },
-      { label: "Reject", tone: "danger", prompt: "Reject this requisition?", inputLabel: "Reason for rejection", path: (item) => `admin/purchase-requisitions/${id(item)}/reject`, body: (input) => ({ comments: input }), visible: (item, user) => status(item) === "submitted" && (role(user, "department_head", "line_manager") || user.is_line_manager) },
+      { label: "Submit", tone: "primary", prompt: "The organisation budget check is complete. Submit this requisition into its approval route? Line-manager requests go directly to the GM.", path: (item) => `admin/purchase-requisitions/${id(item)}/submit`, visible: (item, user) => ["draft", "returned"].includes(status(item)) && role(user, "requester", "line_manager") && !budgetRequiresAcknowledgement(item) },
+      { label: "Proceed despite shortfall", tone: "primary", prompt: "The budget check requires funding review. The request may proceed using loan or other funding, but the reason will be recorded for approvers and audit. Line-manager requests go directly to the GM.", inputLabel: "Funding or loan justification", requiredInput: true, path: (item) => `admin/purchase-requisitions/${id(item)}/submit`, body: (input) => ({ budget_shortfall_acknowledged: true, budget_shortfall_reason: input }), visible: (item, user) => ["draft", "returned"].includes(status(item)) && role(user, "requester", "line_manager") && budgetRequiresAcknowledgement(item) },
+      { label: "Line manager approve", tone: "primary", prompt: "Approve this request and forward it to the GM?", inputLabel: "Approval comments", path: (item) => `admin/purchase-requisitions/${id(item)}/approve`, body: (input) => ({ comments: input }), appliesTo: (item) => status(item) === "submitted", visible: (item, user) => status(item) === "submitted" && lineManagerId(item) === user.id },
+      { label: "GM approve for sourcing", tone: "primary", prompt: "Give final requisition approval and release this request to sourcing? The latest budget position will be recorded, including any shortfall.", inputLabel: "Final approval comments", path: (item) => `admin/purchase-requisitions/${id(item)}/approve`, body: (input) => ({ comments: input }), appliesTo: (item) => status(item) === "pending_gm_approval", visible: (item, user) => status(item) === "pending_gm_approval" && role(user, "gm") },
+      { label: "Return", prompt: "Return this requisition to the requester?", inputLabel: "Required corrections", path: (item) => `admin/purchase-requisitions/${id(item)}/return`, body: (input) => ({ comments: input }), appliesTo: (item) => ["submitted", "pending_gm_approval"].includes(status(item)), visible: (item, user) => (status(item) === "submitted" && lineManagerId(item) === user.id) || (status(item) === "pending_gm_approval" && role(user, "gm")) },
+      { label: "Reject", tone: "danger", prompt: "Reject this requisition?", inputLabel: "Reason for rejection", path: (item) => `admin/purchase-requisitions/${id(item)}/reject`, body: (input) => ({ comments: input }), appliesTo: (item) => ["submitted", "pending_gm_approval"].includes(status(item)), visible: (item, user) => (status(item) === "submitted" && lineManagerId(item) === user.id) || (status(item) === "pending_gm_approval" && role(user, "gm")) },
       { label: "Mark quotations ready", tone: "primary", path: (item) => `admin/purchase-requisitions/${id(item)}/quotations-ready`, visible: (item, user) => ["approved_for_sourcing", "returned_to_sourcing"].includes(status(item)) && role(user, "procurement_officer", "super_admin") },
       { label: "Create LPO", tone: "primary", prompt: "Create the LPO from the approved proforma for this requisition?", path: () => "admin/purchase-orders", body: (_input, item) => ({ purchase_requisition_id: id(item) }), visible: (item, user) => status(item) === "approved_for_purchase" && role(user, "procurement_officer") },
     ],
@@ -202,7 +207,7 @@ export const modules: Record<string, ModuleConfig> = {
     description: "Approved allocations, commitments, expenditure, and remaining availability.",
     endpoint: "admin/entity-budgets",
     searchPlaceholder: "Filter budgets",
-    roles: ["super_admin", "accountant", "gm", "auditor"],
+    roles: ["accountant", "gm", "ceo"],
     statusOptions: ["draft", "submitted", "returned", "approved", "rejected", "closed"],
     columns: [
       { label: "Entity", key: "business_entity.name" },
@@ -214,7 +219,7 @@ export const modules: Record<string, ModuleConfig> = {
       { label: "Status", key: "status", format: "status" },
     ],
     actions: [
-      { label: "Submit budget", tone: "primary", path: (item) => `admin/entity-budgets/${id(item)}/submit`, visible: (item, user) => ["draft", "returned"].includes(status(item)) && role(user, "accountant", "super_admin") },
+      { label: "Submit budget", tone: "primary", path: (item) => `admin/entity-budgets/${id(item)}/submit`, visible: (item, user) => ["draft", "returned"].includes(status(item)) && role(user, "accountant") },
     ],
   },
   suppliers: {

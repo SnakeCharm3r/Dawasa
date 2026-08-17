@@ -5,6 +5,7 @@ namespace App\Policies;
 use App\Models\SupplierInvoice;
 use App\Models\User;
 use Illuminate\Auth\Access\HandlesAuthorization;
+use App\Services\EntityAccessService;
 
 class SupplierInvoicePolicy
 {
@@ -12,11 +13,15 @@ class SupplierInvoicePolicy
 
     public function viewAny(User $user): bool
     {
-        return $user->hasAnyRole(['super_admin', 'auditor', 'accountant', 'gm']);
+        return $user->hasAnyRole(['super_admin', 'auditor', 'accountant', 'gm', 'procurement_officer', 'requester', 'line_manager', 'department_head']);
     }
 
     public function view(User $user, SupplierInvoice $supplierInvoice): bool
     {
+        if (! app(EntityAccessService::class)->canAccess($user, $supplierInvoice->business_entity_id)) {
+            return false;
+        }
+
         if ($user->hasAnyRole(['super_admin', 'auditor', 'accountant', 'gm'])) {
             return true;
         }
@@ -25,8 +30,15 @@ class SupplierInvoicePolicy
             return true;
         }
 
-        if ($user->hasRole('requester') || $user->hasRole('department_head')) {
-            return $supplierInvoice->purchaseOrder->requisition->department_id === $user->department_id;
+        $requisition = $supplierInvoice->purchaseOrder?->requisition;
+
+        if ($user->hasAnyRole(['line_manager', 'department_head'])) {
+            return $requisition
+                && ($requisition->line_manager_id === $user->id || $requisition->requester_id === $user->id);
+        }
+
+        if ($user->hasRole('requester')) {
+            return $requisition && $requisition->requester_id === $user->id;
         }
 
         return false;

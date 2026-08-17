@@ -2,10 +2,10 @@
 
 namespace App\Http\Requests;
 
-use Illuminate\Foundation\Http\FormRequest;
+use App\Http\Requests\CeoAwareFormRequest;
 use Illuminate\Validation\Rule;
 
-class StoreOrUpdateBusinessEntityRequest extends FormRequest
+class StoreOrUpdateBusinessEntityRequest extends CeoAwareFormRequest
 {
     public function authorize(): bool
     {

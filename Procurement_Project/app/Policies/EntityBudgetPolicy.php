@@ -9,22 +9,22 @@ class EntityBudgetPolicy
 {
     public function viewAny(User $user): bool
     {
-        return $user->hasRole(['super_admin', 'accountant', 'gm', 'auditor']);
+        return $user->hasRole(['accountant', 'gm', 'ceo']);
     }
 
     public function view(User $user, EntityBudget $entityBudget): bool
     {
-        return $user->hasRole(['super_admin', 'accountant', 'gm', 'auditor']);
+        return $user->hasRole(['accountant', 'gm', 'ceo']);
     }
 
     public function create(User $user): bool
     {
-        return $user->hasRole(['super_admin', 'accountant']);
+        return $user->hasRole('accountant');
     }
 
     public function update(User $user, EntityBudget $entityBudget): bool
     {
-        return $user->hasRole(['super_admin', 'accountant']) && in_array($entityBudget->status, [
+        return $user->hasRole('accountant') && in_array($entityBudget->status, [
             EntityBudget::STATUS_DRAFT,
             EntityBudget::STATUS_RETURNED,
         ], true);
@@ -32,7 +32,7 @@ class EntityBudgetPolicy
 
     public function submit(User $user, EntityBudget $entityBudget): bool
     {
-        return $user->hasRole(['super_admin', 'accountant']) && in_array($entityBudget->status, [
+        return $user->hasRole('accountant') && in_array($entityBudget->status, [
             EntityBudget::STATUS_DRAFT,
             EntityBudget::STATUS_RETURNED,
         ], true);
@@ -40,7 +40,7 @@ class EntityBudgetPolicy
 
     public function approve(User $user, EntityBudget $entityBudget): bool
     {
-        return $user->hasRole(['super_admin', 'gm']) && $entityBudget->status === EntityBudget::STATUS_SUBMITTED;
+        return $user->hasRole('gm') && $entityBudget->status === EntityBudget::STATUS_SUBMITTED;
     }
 
     public function return(User $user, EntityBudget $entityBudget): bool
@@ -55,7 +55,7 @@ class EntityBudgetPolicy
 
     public function postTransaction(User $user, EntityBudget $entityBudget): bool
     {
-        return $user->hasRole(['super_admin', 'accountant']) && $entityBudget->status === EntityBudget::STATUS_APPROVED;
+        return $user->hasRole('accountant') && $entityBudget->status === EntityBudget::STATUS_APPROVED;
     }
 
     public function delete(User $user, EntityBudget $entityBudget): bool

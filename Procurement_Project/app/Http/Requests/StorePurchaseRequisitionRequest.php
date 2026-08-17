@@ -3,13 +3,18 @@
 namespace App\Http\Requests;
 
 use App\Models\Department;
-use Illuminate\Foundation\Http\FormRequest;
+use App\Http\Requests\CeoAwareFormRequest;
 
-class StorePurchaseRequisitionRequest extends FormRequest
+class StorePurchaseRequisitionRequest extends CeoAwareFormRequest
 {
     public function authorize(): bool
     {
-        return auth()->check() && auth()->user()->department_id !== null && auth()->user()->line_manager_id !== null;
+        if (! auth()->check() || auth()->user()->department_id === null) {
+            return false;
+        }
+
+        return auth()->user()->hasAnyRole(['line_manager', 'department_head'])
+            || (auth()->user()->hasRole('requester') && auth()->user()->line_manager_id !== null);
     }
 
     public function rules(): array
@@ -17,6 +22,7 @@ class StorePurchaseRequisitionRequest extends FormRequest
         return [
             'business_entity_id' => ['required', 'integer', 'exists:business_entities,id'],
             'department_id' => ['required', 'integer', 'exists:departments,id'],
+            'supplier_category_id' => ['required', 'integer', 'exists:supplier_categories,id'],
             'required_date' => ['required', 'date', 'after_or_equal:today'],
             'purpose' => ['required', 'string', 'max:2000'],
             'estimated_amount' => ['required', 'numeric', 'min:0.01'],
@@ -49,8 +55,8 @@ class StorePurchaseRequisitionRequest extends FormRequest
                 $validator->errors()->add('department_id', 'The requester must belong to the selected department.');
             }
 
-            if (! $requester->line_manager_id) {
-                $validator->errors()->add('line_manager_id', 'The requester does not have a valid line manager.');
+            if (! $requester->assignedLineManagerInDepartment()) {
+                $validator->errors()->add('line_manager_id', 'Assign an active line manager from the requester\'s department before creating this requisition.');
             }
 
             $items = $this->input('items', []);

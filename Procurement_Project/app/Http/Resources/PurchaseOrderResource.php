@@ -8,11 +8,11 @@ class PurchaseOrderResource extends JsonResource
 {
     public function toArray($request): array
     {
-        $canSeeFinancials = $request->user()->hasAnyRole(['super_admin', 'accountant', 'gm', 'auditor', 'procurement_officer'])
+        $canSeeFinancials = $request->user()->hasAnyRole(['super_admin', 'accountant', 'gm', 'ceo', 'auditor', 'procurement_officer'])
             || ($this->requisition && $request->user()->id === $this->requisition->requester_id)
             || ($this->requisition && $request->user()->id === $this->requisition->line_manager_id);
 
-        $canSeeBudgetData = $request->user()->hasAnyRole(['super_admin', 'accountant', 'gm', 'auditor'])
+        $canSeeBudgetData = $request->user()->hasAnyRole(['super_admin', 'accountant', 'gm', 'ceo', 'auditor'])
             || ($this->requisition && $request->user()->id === $this->requisition->requester_id)
             || ($this->requisition && $request->user()->id === $this->requisition->line_manager_id);
 

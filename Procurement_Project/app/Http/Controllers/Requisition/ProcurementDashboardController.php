@@ -13,12 +13,25 @@ use App\Models\PurchaseRequisition;
 use App\Models\QuotationRecommendation;
 use App\Models\SupplierInvoice;
 use App\Models\SupplierQuotation;
+use App\Services\EntityAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class ProcurementDashboardController extends Controller
 {
+    public function __construct(private readonly EntityAccessService $entityAccess)
+    {
+        $this->middleware(function (Request $request, $next) {
+            $entityId = $this->entityAccess->entityId($request, $request->user());
+            if ($entityId !== null) {
+                $request->merge(['business_entity_id' => $entityId]);
+            }
+
+            return $next($request);
+        });
+    }
+
     protected function applyEntityFilter($query, Request $request)
     {
         if ($request->has('business_entity_id')) {
@@ -33,11 +46,11 @@ class ProcurementDashboardController extends Controller
 
     public function executive(Request $request): JsonResponse
     {
-        if (! auth()->user()->hasAnyRole(['super_admin', 'gm', 'auditor'])) {
+        if (! auth()->user()->hasAnyRole(['gm', 'ceo'])) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
-        $canSeeBudgetData = auth()->user()->hasAnyRole(['super_admin', 'gm', 'accountant', 'auditor']);
+        $canSeeBudgetData = true;
 
         $requisitionsByStatus = PurchaseRequisition::select('status', DB::raw('count(*) as count'))
             ->when($request->has('business_entity_id'), fn ($q) => $q->where('business_entity_id', $request->input('business_entity_id')))
@@ -63,7 +76,11 @@ class ProcurementDashboardController extends Controller
                 'available_amount',
             )
                 ->when($request->has('business_entity_id'), fn ($q) => $q->where('business_entity_id', $request->input('business_entity_id')))
-                ->when($request->has('financial_year_id'), fn ($q) => $q->where('financial_year_id', $request->input('financial_year_id')))
+                ->when(
+                    $request->has('financial_year_id'),
+                    fn ($q) => $q->where('financial_year_id', $request->input('financial_year_id')),
+                    fn ($q) => $q->whereHas('financialYear', fn ($year) => $year->where('is_active', true)),
+                )
                 ->with(['businessEntity', 'financialYear'])
                 ->get();
         }
@@ -130,7 +147,7 @@ class ProcurementDashboardController extends Controller
 
     public function operational(Request $request): JsonResponse
     {
-        if (! auth()->user()->hasAnyRole(['super_admin', 'procurement_officer'])) {
+        if (! auth()->user()->hasAnyRole(['super_admin', 'procurement_officer', 'ceo'])) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
@@ -158,8 +175,21 @@ class ProcurementDashboardController extends Controller
 
         $awaitingInspection = (clone $grnQuery)->where('status', GoodsReceiptNote::STATUS_SUBMITTED)->count();
 
-        $closureQuery = ProcurementClosure::query();
-        $this->applyEntityFilter($closureQuery->whereHas('purchaseRequisition'), $request);
+        $closureQuery = ProcurementClosure::query()
+            ->when(
+                $request->has('business_entity_id'),
+                fn ($query) => $query->whereHas(
+                    'purchaseRequisition',
+                    fn ($requisition) => $requisition->where('business_entity_id', $request->input('business_entity_id')),
+                ),
+            )
+            ->when(
+                $request->has('financial_year_id'),
+                fn ($query) => $query->whereHas(
+                    'purchaseOrder',
+                    fn ($purchaseOrder) => $purchaseOrder->where('financial_year_id', $request->input('financial_year_id')),
+                ),
+            );
 
         $awaitingRequesterConfirmation = (clone $closureQuery)->where('closure_status', 'pending_requester_confirmation')->count();
 
@@ -181,7 +211,7 @@ class ProcurementDashboardController extends Controller
 
     public function finance(Request $request): JsonResponse
     {
-        if (! auth()->user()->hasAnyRole(['super_admin', 'accountant', 'gm', 'auditor'])) {
+        if (! auth()->user()->hasAnyRole(['accountant', 'gm', 'ceo'])) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
@@ -197,12 +227,16 @@ class ProcurementDashboardController extends Controller
             'spent_amount',
             'available_amount',
         )
+            ->when(
+                ! $request->has('financial_year_id'),
+                fn ($q) => $q->whereHas('financialYear', fn ($year) => $year->where('is_active', true)),
+            )
             ->with(['businessEntity', 'financialYear'])
             ->get();
 
         $poCommitments = PurchaseOrder::select('business_entity_id', 'financial_year_id', DB::raw('sum(total_amount) as total'))
             ->whereNotIn('status', [PurchaseOrder::STATUS_DRAFT, PurchaseOrder::STATUS_CANCELLED])
-            ->whereDoesntHave('paymentVouchers', fn ($q) => $q->where('status', PaymentVoucher::STATUS_PAID))
+            ->whereDoesntHave('supplierInvoices.paymentVouchers', fn ($q) => $q->where('status', PaymentVoucher::STATUS_PAID))
             ->when($request->has('business_entity_id'), fn ($q) => $q->where('business_entity_id', $request->input('business_entity_id')))
             ->when($request->has('financial_year_id'), fn ($q) => $q->where('financial_year_id', $request->input('financial_year_id')))
             ->with(['businessEntity', 'financialYear'])
@@ -243,8 +277,15 @@ class ProcurementDashboardController extends Controller
     public function requester(Request $request): JsonResponse
     {
         $userId = auth()->id();
+        $isLineManager = auth()->user()->hasRole('line_manager');
 
-        $myRequisitions = PurchaseRequisition::where('requester_id', $userId)
+        $myRequisitions = PurchaseRequisition::query()
+            ->where(function ($query) use ($userId, $isLineManager) {
+                $query->where('requester_id', $userId);
+                if ($isLineManager) {
+                    $query->orWhere('line_manager_id', $userId);
+                }
+            })
             ->with(['department', 'businessEntity', 'purchaseOrder', 'purchaseOrder.supplier'])
             ->orderByDesc('created_at')
             ->paginate($request->input('per_page', 10));
@@ -257,10 +298,15 @@ class ProcurementDashboardController extends Controller
             ->where('closure_status', 'pending_requester_confirmation')
             ->count();
 
+        $awaitingMyApproval = $isLineManager
+            ? PurchaseRequisition::where('line_manager_id', $userId)->where('status', PurchaseRequisition::STATUS_SUBMITTED)->count()
+            : 0;
+
         return response()->json([
             'data' => [
                 'my_requisitions' => $myRequisitions,
                 'awaiting_my_action' => $awaitingMyAction,
+                'awaiting_my_approval' => $awaitingMyApproval,
                 'awaiting_my_confirmation' => $awaitingMyConfirmation,
             ],
         ]);
@@ -268,7 +314,7 @@ class ProcurementDashboardController extends Controller
 
     public function auditor(Request $request): JsonResponse
     {
-        if (! auth()->user()->hasAnyRole(['super_admin', 'auditor'])) {
+        if (! auth()->user()->hasAnyRole(['super_admin', 'auditor', 'ceo'])) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 

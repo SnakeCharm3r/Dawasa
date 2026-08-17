@@ -54,9 +54,14 @@ export function RequisitionDialog({ open, close, completed, requisition }: Requi
   const [requiredDate, setRequiredDate] = useState("");
   const [purpose, setPurpose] = useState("");
   const [estimateNote, setEstimateNote] = useState("");
+  const [categories, setCategories] = useState<JsonRecord[]>([]);
+  const [categoryId, setCategoryId] = useState("");
+  const [budgetCheck, setBudgetCheck] = useState<JsonRecord | null>(null);
+  const [budgetChecking, setBudgetChecking] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const total = useMemo(() => items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.estimated_unit_price || 0), 0), [items]);
+  const hasFullBudget = budgetCheck !== null && Object.prototype.hasOwnProperty.call(budgetCheck, "total_allocated_budget");
 
   useEffect(() => {
     if (!open) return;
@@ -73,8 +78,25 @@ export function RequisitionDialog({ open, close, completed, requisition }: Requi
     setRequiredDate(String(requisition?.required_date ?? ""));
     setPurpose(String(requisition?.purpose ?? ""));
     setEstimateNote(String(requisition?.estimate_difference_reason ?? ""));
+    setCategoryId(String((requisition?.supplier_category as JsonRecord | undefined)?.id ?? ""));
+    void api<{ data: JsonRecord[] }>("portal/supplier-categories").then((response) => setCategories(response.data));
     setError("");
   }, [open, requisition]);
+
+  useEffect(() => {
+    const entityId = Number((requisition?.business_entity as JsonRecord | undefined)?.id ?? user?.department?.business_entity?.id ?? 0);
+    if (!open || !entityId) return;
+
+    const timer = window.setTimeout(() => {
+      setBudgetChecking(true);
+      api<{ data: JsonRecord }>(`admin/requisition-budget-check?business_entity_id=${entityId}&amount=${Math.max(0, total)}`)
+        .then((response) => setBudgetCheck(response.data))
+        .catch(() => setBudgetCheck(null))
+        .finally(() => setBudgetChecking(false));
+    }, 250);
+
+    return () => window.clearTimeout(timer);
+  }, [open, requisition, total, user?.department?.business_entity?.id]);
 
   function updateItem(index: number, key: keyof RequisitionItem, value: string) {
     setItems((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, [key]: value } : item));
@@ -93,6 +115,7 @@ export function RequisitionDialog({ open, close, completed, requisition }: Requi
     const payload = {
       business_entity_id: Number(requisitionEntity?.id ?? user.department.business_entity.id),
       department_id: Number(requisitionDepartment?.id ?? user.department.id),
+      supplier_category_id: Number(categoryId),
       required_date: requiredDate,
       purpose,
       estimated_amount: total,
@@ -115,14 +138,19 @@ export function RequisitionDialog({ open, close, completed, requisition }: Requi
     <Modal title={requisition ? "Edit purchase requisition" : "New purchase requisition"} subtitle={`${user?.department?.name ?? "Department"} · ${user?.department?.business_entity?.name ?? "Business entity"}`} close={close} large>
       <form onSubmit={submit} className="dialog-form">
         {error && <div className="form-alert">{error}</div>}
-        <div className="form-grid"><label className="field"><span>Required date</span><input name="required_date" type="date" min={new Date().toISOString().slice(0, 10)} value={requiredDate} onChange={(event) => setRequiredDate(event.target.value)} required /></label><label className="field wide"><span>Business purpose</span><textarea name="purpose" rows={3} value={purpose} onChange={(event) => setPurpose(event.target.value)} required placeholder="Describe why this purchase is required" /></label></div>
+        <div className="form-grid two"><label className="field"><span>Required date</span><input name="required_date" type="date" min={new Date().toISOString().slice(0, 10)} value={requiredDate} onChange={(event) => setRequiredDate(event.target.value)} required /></label><label className="field"><span>Procurement category</span><select value={categoryId} onChange={(event) => setCategoryId(event.target.value)} required><option value="" disabled>Select category</option>{categories.map((category) => <option key={String(category.id)} value={String(category.id)}>{String(category.name)}</option>)}</select></label><label className="field wide"><span>Business purpose</span><textarea name="purpose" rows={3} value={purpose} onChange={(event) => setPurpose(event.target.value)} required placeholder="Describe why this purchase is required" /></label></div>
         <div className="line-items-heading"><div><h3>Requested items</h3><p>Quantities and estimates establish the initial budget commitment.</p></div><button type="button" className="secondary-button compact" onClick={() => setItems((current) => [...current, emptyItem()])}><Plus size={15} />Add line</button></div>
         <div className="line-items">
           {items.map((item, index) => <div className="line-item" key={index}><div className="line-number">{index + 1}</div><div className="form-grid item-grid requisition-item-grid"><label className="field"><span>Product</span><input value={item.item_name} onChange={(event) => updateItem(index, "item_name", event.target.value)} required /></label><label className="field"><span>Product description</span><input value={item.specification} onChange={(event) => updateItem(index, "specification", event.target.value)} /></label><label className="field"><span>Quantity</span><input type="number" min="0.01" step="0.01" inputMode="decimal" value={item.quantity} onChange={(event) => updateItem(index, "quantity", event.target.value)} required /></label><label className="field"><span>Unit of measure</span><input value={item.unit} onChange={(event) => updateItem(index, "unit", event.target.value)} required placeholder="Carton, each, kg" pattern=".*[^0-9.,\s].*" title="Enter a unit such as carton, each, box, or kg" /></label><label className="field"><span>Unit price (TZS)</span><input type="number" min="0" step="0.01" inputMode="decimal" value={item.estimated_unit_price} onChange={(event) => updateItem(index, "estimated_unit_price", event.target.value)} required placeholder="0.00" /></label><label className="field"><span>Product note <small>Optional</small></span><input value={item.notes} onChange={(event) => updateItem(index, "notes", event.target.value)} /></label><div className="line-total"><span>Line total</span><strong>TZS {(Number(item.quantity || 0) * Number(item.estimated_unit_price || 0)).toLocaleString()}</strong></div></div>{items.length > 1 && <button type="button" className="icon-button danger" onClick={() => setItems((current) => current.filter((_, itemIndex) => itemIndex !== index))} title="Remove line"><Trash2 size={17} /></button>}</div>)}
         </div>
         <label className="field"><span>Estimate note <small>Optional</small></span><textarea name="estimate_difference_reason" rows={2} value={estimateNote} onChange={(event) => setEstimateNote(event.target.value)} placeholder="Add context about the estimate where useful" /></label>
+        <section className={`draft-budget-check ${budgetCheck?.sufficient ? "sufficient" : "shortfall"}`}>
+          <div className="budget-check-outcome"><span>Organisation budget check</span><strong>{budgetChecking ? "Checking…" : budgetCheck?.sufficient ? "Budget check available" : "Funding review required"}</strong></div>
+          {hasFullBudget && <><div><span>Total allocated budget</span><strong>{budgetCheck?.total_allocated_budget == null ? "Not configured" : `TZS ${Number(budgetCheck.total_allocated_budget).toLocaleString(undefined, { minimumFractionDigits: 2 })}`}</strong></div><div><span>Total used so far</span><strong>{budgetCheck?.total_used_amount == null ? "—" : `TZS ${Number(budgetCheck.total_used_amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}`}</strong></div><div><span>Available amount</span><strong>{budgetCheck?.available_amount == null ? "—" : `TZS ${Number(budgetCheck.available_amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}`}</strong></div></>}
+          <p>{String(budgetCheck?.message ?? "The budget check is advisory and does not prevent saving this draft.")}</p>
+        </section>
         <div className="requisition-total"><span>Estimated requisition total</span><strong>TZS {total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
-        <div className="dialog-actions"><button type="button" className="secondary-button" onClick={close}>Cancel</button><button className="primary-button" disabled={submitting || total <= 0}>{submitting && <LoaderCircle className="spin" size={16} />}{requisition ? "Update draft" : "Save draft"}</button></div>
+        <div className="dialog-actions"><button type="button" className="secondary-button" onClick={close}>Cancel</button><button className="primary-button" disabled={submitting || total <= 0 || !categoryId}>{submitting && <LoaderCircle className="spin" size={16} />}{requisition ? "Update draft" : "Save draft"}</button></div>
       </form>
     </Modal>
   );

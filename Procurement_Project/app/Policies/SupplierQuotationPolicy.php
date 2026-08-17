@@ -5,6 +5,7 @@ namespace App\Policies;
 use App\Models\SupplierQuotation;
 use App\Models\User;
 use Illuminate\Auth\Access\HandlesAuthorization;
+use App\Services\EntityAccessService;
 
 class SupplierQuotationPolicy
 {
@@ -12,11 +13,24 @@ class SupplierQuotationPolicy
 
     public function viewAny(User $user): bool
     {
-        return $user->hasAnyRole(['super_admin', 'auditor', 'accountant', 'procurement_officer', 'gm']);
+        return $user->hasAnyRole(['super_admin', 'auditor', 'accountant', 'procurement_officer', 'gm', 'requester', 'line_manager', 'department_head']);
     }
 
     public function view(User $user, SupplierQuotation $supplierQuotation): bool
     {
+        $requisition = $supplierQuotation->requisition;
+        if (! $requisition || ! app(EntityAccessService::class)->canAccess($user, $requisition->business_entity_id)) {
+            return false;
+        }
+
+        if ($user->hasAnyRole(['line_manager', 'department_head'])) {
+            return $requisition->line_manager_id === $user->id || $requisition->requester_id === $user->id;
+        }
+
+        if ($user->hasRole('requester')) {
+            return $requisition->requester_id === $user->id;
+        }
+
         return $user->hasAnyRole(['super_admin', 'auditor', 'accountant', 'procurement_officer', 'gm']);
     }
 

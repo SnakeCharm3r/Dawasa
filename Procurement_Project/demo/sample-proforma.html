@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Sample Proforma PF-DEMO-2026-001</title>
+  <style>
+    body { margin: 42px; color: #17243a; font-family: Arial, sans-serif; font-size: 12px; }
+    header { display: flex; justify-content: space-between; padding-bottom: 22px; border-bottom: 2px solid #173b63; }
+    h1 { margin: 0; color: #173b63; font-size: 25px; }
+    h2 { margin: 5px 0; font-size: 16px; }
+    p { margin: 4px 0; line-height: 1.5; }
+    .meta { margin: 24px 0; padding: 15px; background: #eef3f7; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 10px; text-align: left; border: 1px solid #cfd8e2; }
+    th { color: #fff; background: #173b63; }
+    .number { text-align: right; }
+    .total { margin: 20px 0 0 auto; width: 330px; }
+    .total td:first-child { font-weight: bold; }
+    footer { margin-top: 55px; padding-top: 15px; border-top: 1px solid #cfd8e2; }
+  </style>
+</head>
+<body>
+  <header>
+    <div><h1>PROFORMA QUOTATION</h1><p>PF-DEMO-2026-001</p></div>
+    <div><h2>TechSource Tanzania Limited</h2><p>Mikocheni, Dar es Salaam</p><p>demo.supplier@example.com</p><p>+255 713 555 010</p></div>
+  </header>
+  <section class="meta">
+    <p><strong>RFQ:</strong> RFQ-2026-DEMO001</p>
+    <p><strong>Quotation date:</strong> 17 August 2026</p>
+    <p><strong>Valid until:</strong> 30 September 2026</p>
+    <p><strong>Delivery period:</strong> 14 calendar days</p>
+    <p><strong>Currency:</strong> TZS</p>
+  </section>
+  <table>
+    <thead><tr><th>Item</th><th>Quantity</th><th>Unit</th><th class="number">Unit price</th><th class="number">Line total</th></tr></thead>
+    <tbody>
+      <tr><td>Business laptop</td><td>8</td><td>piece</td><td class="number">2,350,000</td><td class="number">18,800,000</td></tr>
+      <tr><td>USB-C docking station</td><td>8</td><td>piece</td><td class="number">390,000</td><td class="number">3,120,000</td></tr>
+      <tr><td>Line-interactive UPS</td><td>8</td><td>piece</td><td class="number">215,000</td><td class="number">1,720,000</td></tr>
+    </tbody>
+  </table>
+  <table class="total">
+    <tr><td>Subtotal</td><td class="number">TZS 23,640,000</td></tr>
+    <tr><td>Tax</td><td class="number">TZS 0</td></tr>
+    <tr><td>Total</td><td class="number"><strong>TZS 23,640,000</strong></td></tr>
+  </table>
+  <footer>
+    <p><strong>Warranty:</strong> Three-year manufacturer warranty on laptops; one year on accessories.</p>
+    <p><strong>Declaration:</strong> We confirm that the offered goods meet the published specifications.</p>
+    <br><p>Authorised signature: ______________________________</p>
+  </footer>
+</body>
+</html>

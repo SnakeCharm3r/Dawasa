@@ -9,12 +9,27 @@ class PurchaseRequisitionPolicy
 {
     public function viewAny(User $user): bool
     {
-        return $user->hasAnyRole(['super_admin', 'accountant', 'gm', 'auditor', 'procurement_officer', 'department_head', 'line_manager', 'requester']);
+        return $user->hasAnyRole(['super_admin', 'accountant', 'gm', 'ceo', 'auditor', 'procurement_officer', 'department_head', 'line_manager', 'requester']);
     }
 
     public function view(User $user, PurchaseRequisition $purchaseRequisition): bool
     {
-        if ($user->hasAnyRole(['super_admin', 'accountant', 'gm', 'auditor'])) {
+        if ($user->hasRole('gm')
+            && ! app(\App\Services\EntityAccessService::class)->canAccess($user, $purchaseRequisition->business_entity_id)) {
+            return false;
+        }
+
+        // Ownership always grants read access, even when the owner also has a
+        // managerial role or has since moved to another department.
+        if ($user->id === $purchaseRequisition->requester_id) {
+            return true;
+        }
+
+        if (! app(\App\Services\EntityAccessService::class)->canAccess($user, $purchaseRequisition->business_entity_id)) {
+            return false;
+        }
+
+        if ($user->hasAnyRole(['super_admin', 'accountant', 'gm', 'ceo', 'auditor'])) {
             return true;
         }
 
@@ -26,16 +41,18 @@ class PurchaseRequisitionPolicy
             ], true);
         }
 
-        if ($user->hasRole('department_head') || $user->hasRole('line_manager')) {
-            return $user->department_id === $purchaseRequisition->department_id;
+        if ($user->hasAnyRole(['line_manager', 'department_head'])) {
+            return $user->id === $purchaseRequisition->line_manager_id;
         }
 
-        return $user->id === $purchaseRequisition->requester_id;
+        return false;
     }
 
     public function create(User $user): bool
     {
-        return $user->hasRole('requester') && $user->department_id !== null && $user->line_manager_id !== null;
+        return $user->department_id !== null
+            && ($user->hasAnyRole(['line_manager', 'department_head']) || $user->hasRole('requester'))
+            && $user->assignedLineManagerInDepartment() !== null;
     }
 
     public function update(User $user, PurchaseRequisition $purchaseRequisition): bool
@@ -65,24 +82,27 @@ class PurchaseRequisitionPolicy
     public function cancel(User $user, PurchaseRequisition $purchaseRequisition): bool
     {
         return $user->id === $purchaseRequisition->requester_id
-            && in_array($purchaseRequisition->status, [PurchaseRequisition::STATUS_DRAFT, PurchaseRequisition::STATUS_RETURNED, PurchaseRequisition::STATUS_SUBMITTED], true);
+            && in_array($purchaseRequisition->status, [PurchaseRequisition::STATUS_DRAFT, PurchaseRequisition::STATUS_RETURNED, PurchaseRequisition::STATUS_SUBMITTED, PurchaseRequisition::STATUS_PENDING_GM_APPROVAL], true);
     }
 
     public function approve(User $user, PurchaseRequisition $purchaseRequisition): bool
     {
-        if (! in_array($purchaseRequisition->status, [PurchaseRequisition::STATUS_SUBMITTED], true)) {
-            return false;
-        }
-
         if ($user->id === $purchaseRequisition->requester_id) {
             return false;
         }
 
-        if ($user->hasRole('line_manager')) {
-            return $user->department_id === $purchaseRequisition->department_id;
+        if ($purchaseRequisition->status === PurchaseRequisition::STATUS_SUBMITTED) {
+            $requester = $purchaseRequisition->requester;
+
+            return $user->id === $purchaseRequisition->line_manager_id
+                && $user->department_id === $purchaseRequisition->department_id
+                && $requester !== null
+                && $user->canManageDepartmentUser($requester);
         }
 
-        return $user->hasRole('department_head');
+        return $purchaseRequisition->status === PurchaseRequisition::STATUS_PENDING_GM_APPROVAL
+            && $user->hasRole('gm')
+            && app(\App\Services\EntityAccessService::class)->canAccess($user, $purchaseRequisition->business_entity_id);
     }
 
     public function return(User $user, PurchaseRequisition $purchaseRequisition): bool

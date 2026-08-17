@@ -118,6 +118,11 @@ class PurchaseOrder extends Model
         return $this->hasMany(PurchaseOrderApproval::class);
     }
 
+    public function supplierInvoices(): HasMany
+    {
+        return $this->hasMany(SupplierInvoice::class);
+    }
+
     public function accountantConfirmedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'accountant_confirmed_by');

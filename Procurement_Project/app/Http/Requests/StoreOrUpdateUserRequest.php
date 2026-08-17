@@ -4,10 +4,10 @@ namespace App\Http\Requests;
 
 use App\Models\Department;
 use App\Models\User;
-use Illuminate\Foundation\Http\FormRequest;
+use App\Http\Requests\CeoAwareFormRequest;
 use Illuminate\Validation\Rule;
 
-class StoreOrUpdateUserRequest extends FormRequest
+class StoreOrUpdateUserRequest extends CeoAwareFormRequest
 {
     public function authorize(): bool
     {
@@ -60,6 +60,10 @@ class StoreOrUpdateUserRequest extends FormRequest
 
                 if ($departmentId && $lineManager->department_id !== $departmentId) {
                     $validator->errors()->add('line_manager_id', 'The selected line manager must belong to the same department.');
+                }
+
+                if (! $lineManager->is_active || ! $lineManager->is_line_manager || ! $lineManager->hasAnyRole(['line_manager', 'department_head'])) {
+                    $validator->errors()->add('line_manager_id', 'The selected user must be an active line manager.');
                 }
             }
         });

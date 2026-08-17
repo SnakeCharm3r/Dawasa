@@ -5,6 +5,7 @@ namespace App\Policies;
 use App\Models\PurchaseOrder;
 use App\Models\User;
 use Illuminate\Auth\Access\HandlesAuthorization;
+use App\Services\EntityAccessService;
 
 class PurchaseOrderPolicy
 {
@@ -13,25 +14,22 @@ class PurchaseOrderPolicy
     public function viewAny(User $user): bool
     {
         return $user->hasAnyRole([
-            'super_admin', 'auditor', 'accountant', 'procurement_officer', 'gm', 'requester', 'department_head',
+            'super_admin', 'auditor', 'accountant', 'procurement_officer', 'gm', 'requester', 'department_head', 'line_manager',
         ]);
     }
 
     public function view(User $user, PurchaseOrder $purchaseOrder): bool
     {
+        if (! app(EntityAccessService::class)->canAccess($user, $purchaseOrder->business_entity_id)) {
+            return false;
+        }
+
         if ($user->hasAnyRole(['super_admin', 'auditor', 'accountant', 'procurement_officer'])) {
             return true;
         }
 
         if ($user->hasRole('gm')) {
-            return in_array($purchaseOrder->status, [
-                PurchaseOrder::STATUS_CONFIRMED,
-                PurchaseOrder::STATUS_ISSUED,
-                PurchaseOrder::STATUS_ACKNOWLEDGED,
-                PurchaseOrder::STATUS_PARTIALLY_RECEIVED,
-                PurchaseOrder::STATUS_FULLY_RECEIVED,
-                PurchaseOrder::STATUS_CLOSED,
-            ], true);
+            return true;
         }
 
         $requisition = $purchaseOrder->requisition ?? $purchaseOrder->requisition()->first();
@@ -41,9 +39,10 @@ class PurchaseOrderPolicy
                 && $requisition && $requisition->requester_id === $user->id;
         }
 
-        if ($user->hasRole('department_head')) {
+        if ($user->hasAnyRole(['line_manager', 'department_head'])) {
             return $purchaseOrder->status === PurchaseOrder::STATUS_ISSUED
-                && $requisition && $requisition->department_id === $user->department_id;
+                && $requisition
+                && ($requisition->line_manager_id === $user->id || $requisition->requester_id === $user->id);
         }
 
         return false;

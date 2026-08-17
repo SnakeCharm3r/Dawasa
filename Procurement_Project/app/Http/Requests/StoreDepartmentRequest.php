@@ -4,10 +4,10 @@ namespace App\Http\Requests;
 
 use App\Models\BusinessEntity;
 use Illuminate\Contracts\Validation\ValidationRule;
-use Illuminate\Foundation\Http\FormRequest;
+use App\Http\Requests\CeoAwareFormRequest;
 use Illuminate\Validation\Rule;
 
-class StoreDepartmentRequest extends FormRequest
+class StoreDepartmentRequest extends CeoAwareFormRequest
 {
     public function authorize(): bool
     {

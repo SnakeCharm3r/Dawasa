@@ -4,10 +4,10 @@ namespace App\Http\Requests;
 
 use App\Models\Department;
 use Illuminate\Contracts\Validation\ValidationRule;
-use Illuminate\Foundation\Http\FormRequest;
+use App\Http\Requests\CeoAwareFormRequest;
 use Illuminate\Validation\Rule;
 
-class BusinessEntityFormRequest extends FormRequest
+class BusinessEntityFormRequest extends CeoAwareFormRequest
 {
     /**
      * Determine if the user is authorized to make this request.

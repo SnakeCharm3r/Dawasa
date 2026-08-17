@@ -4,9 +4,9 @@ namespace App\Http\Requests;
 
 use App\Models\PurchaseRequisition;
 use Illuminate\Contracts\Validation\ValidationRule;
-use Illuminate\Foundation\Http\FormRequest;
+use App\Http\Requests\CeoAwareFormRequest;
 
-class SubmitPurchaseRequisitionRequest extends FormRequest
+class SubmitPurchaseRequisitionRequest extends CeoAwareFormRequest
 {
     public function authorize(): bool
     {
@@ -19,6 +19,9 @@ class SubmitPurchaseRequisitionRequest extends FormRequest
 
     public function rules(): array
     {
-        return [];
+        return [
+            'budget_shortfall_acknowledged' => ['sometimes', 'boolean'],
+            'budget_shortfall_reason' => ['nullable', 'string', 'max:2000', 'required_if:budget_shortfall_acknowledged,true'],
+        ];
     }
 }

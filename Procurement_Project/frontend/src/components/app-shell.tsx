@@ -1,6 +1,7 @@
 "use client";
 
 import { useAuth } from "@/components/auth-provider";
+import { useEntityScope } from "@/components/entity-scope-provider";
 import type { Role } from "@/lib/types";
 import {
   BadgeDollarSign,
@@ -21,12 +22,14 @@ import {
   ShieldCheck,
   ShoppingCart,
   Truck,
+  Megaphone,
+  UserCheck,
   Users,
   X,
 } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useMemo, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 
 type NavItem = {
   label: string;
@@ -37,18 +40,20 @@ type NavItem = {
 
 const workflowItems: NavItem[] = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Requisitions", href: "/requisitions", icon: ClipboardCheck, roles: ["super_admin", "gm", "accountant", "procurement_officer", "department_head", "requester", "auditor", "line_manager"] },
-  { label: "Proformas", href: "/quotations", icon: FileText, roles: ["super_admin", "procurement_officer", "gm", "accountant", "auditor"] },
-  { label: "LPOs", href: "/purchase-orders", icon: ShoppingCart, roles: ["super_admin", "gm", "accountant", "procurement_officer", "department_head", "requester", "auditor", "storekeeper", "receiving_officer"] },
+  { label: "Requisitions", href: "/requisitions", icon: ClipboardCheck, roles: ["super_admin", "gm", "ceo", "accountant", "procurement_officer", "department_head", "requester", "auditor", "line_manager"] },
+  { label: "Proformas", href: "/quotations", icon: FileText, roles: ["super_admin", "procurement_officer", "gm", "accountant", "auditor", "requester", "line_manager", "department_head"] },
+  { label: "LPOs", href: "/purchase-orders", icon: ShoppingCart, roles: ["super_admin", "gm", "accountant", "procurement_officer", "department_head", "line_manager", "requester", "auditor", "storekeeper", "receiving_officer"] },
   { label: "Delivery & store receipt", href: "/goods-receipts", icon: PackageCheck, roles: ["super_admin", "gm", "accountant", "procurement_officer", "department_head", "requester", "auditor", "storekeeper", "receiving_officer"] },
-  { label: "Supplier invoices", href: "/invoices", icon: ReceiptText, roles: ["super_admin", "gm", "accountant", "procurement_officer", "department_head", "requester", "auditor"] },
+  { label: "Supplier invoices", href: "/invoices", icon: ReceiptText, roles: ["super_admin", "gm", "accountant", "procurement_officer", "department_head", "line_manager", "requester", "auditor"] },
   { label: "Payments", href: "/payments", icon: BadgeDollarSign, roles: ["super_admin", "accountant", "gm", "auditor"] },
   { label: "Closures", href: "/closures", icon: FileCheck2, roles: ["super_admin", "gm", "accountant", "procurement_officer", "department_head", "requester", "auditor"] },
 ];
 
 const managementItems: NavItem[] = [
-  { label: "Budgets", href: "/budgets", icon: Boxes, roles: ["super_admin", "accountant", "gm", "auditor"] },
+  { label: "Budgets", href: "/budgets", icon: Boxes, roles: ["accountant", "gm", "ceo"] },
   { label: "Suppliers", href: "/suppliers", icon: Truck, roles: ["super_admin", "procurement_officer", "accountant", "gm", "auditor"] },
+  { label: "Supplier verification", href: "/supplier-verification", icon: UserCheck, roles: ["super_admin", "gm"] },
+  { label: "Tenders & RFQs", href: "/admin-tenders", icon: Megaphone, roles: ["super_admin", "procurement_officer", "gm"] },
   { label: "Reports", href: "/reports", icon: BarChart3, roles: ["super_admin", "gm", "accountant", "procurement_officer", "auditor"] },
 ];
 
@@ -64,12 +69,19 @@ function initials(name: string) {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, loading, logout } = useAuth();
+  const { entities, selectedEntityId, setSelectedEntityId } = useEntityScope();
   const pathname = usePathname();
+  const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
 
+  useEffect(() => {
+    if (!loading && (!user || user.roles.includes("supplier"))) router.replace("/login");
+  }, [loading, router, user]);
+
   const visible = useMemo(() => {
-    const filter = (items: NavItem[]) => items.filter((item) => !item.roles || item.roles.some((role) => user?.roles.includes(role)));
+    const isCeo = user?.roles.includes("ceo");
+    const filter = (items: NavItem[]) => items.filter((item) => isCeo || !item.roles || item.roles.some((role) => user?.roles.includes(role)));
     return { workflow: filter(workflowItems), management: filter(managementItems), admin: filter(adminItems) };
   }, [user]);
 
@@ -116,7 +128,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
           <div className="topbar-context">
             <span className="context-dot" />
-            <span>{user.department?.business_entity?.name ?? "Procurement Group"}</span>
+            {user.roles.includes("ceo") ? <select aria-label="Business entity" value={selectedEntityId} onChange={(event) => setSelectedEntityId(event.target.value)}><option value="">All business entities</option>{entities.map((entity) => <option value={entity.id} key={entity.id}>{entity.name} ({entity.code})</option>)}</select> : <span>{user.department?.business_entity?.name ?? "Procurement Group"}</span>}
           </div>
         </header>
         <main className="content">{children}</main>

@@ -2,15 +2,19 @@
 
 namespace App\Http\Resources;
 
+use App\Services\RequisitionBudgetService;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 class PurchaseRequisitionResource extends JsonResource
 {
     public function toArray($request): array
     {
-        $canSeeFinancials = $request->user()->hasAnyRole(['super_admin', 'accountant', 'gm', 'auditor'])
+        $canSeeFinancials = $request->user()->hasAnyRole(['super_admin', 'accountant', 'gm', 'ceo', 'auditor'])
             || $request->user()->id === $this->requester_id
             || $request->user()->id === $this->line_manager_id;
+        $canSeeFullBudget = $request->user()->hasAnyRole(['accountant', 'gm', 'ceo']);
+        $isProcurementOnly = $request->user()->hasRole('procurement_officer')
+            && ! $request->user()->hasAnyRole(['super_admin', 'accountant', 'gm', 'ceo', 'auditor']);
 
         $base = [
             'id' => $this->id,
@@ -23,6 +27,11 @@ class PurchaseRequisitionResource extends JsonResource
                 'id' => $this->department?->id,
                 'name' => $this->department?->name,
             ],
+            'supplier_category' => $this->supplierCategory ? [
+                'id' => $this->supplierCategory->id,
+                'code' => $this->supplierCategory->code,
+                'name' => $this->supplierCategory->name,
+            ] : null,
             'requester' => [
                 'id' => $this->requester?->id,
                 'name' => $this->requester?->name,
@@ -58,7 +67,7 @@ class PurchaseRequisitionResource extends JsonResource
 
                 return $data;
             }),
-            'attachments' => $this->attachments->map(function ($attachment) {
+            'attachments' => $this->attachments->filter(fn ($attachment) => ! $isProcurementOnly || ! $attachment->is_confidential)->map(function ($attachment) {
                 return [
                     'id' => $attachment->id,
                     'original_name' => $attachment->original_name,
@@ -72,24 +81,27 @@ class PurchaseRequisitionResource extends JsonResource
                     'created_at' => $attachment->created_at?->toDateTimeString(),
                 ];
             }),
-            'approvals' => $this->approvals->map(function ($approval) {
-                return [
+            'approvals' => $this->approvals->map(function ($approval) use ($isProcurementOnly) {
+                $data = [
                     'id' => $approval->id,
                     'action' => $approval->action,
-                    'comments' => $approval->comments,
                     'action_at' => $approval->action_at?->toDateTimeString(),
                     'actor' => [
                         'id' => $approval->actor?->id,
                         'name' => $approval->actor?->name,
                     ],
                 ];
+                if (! $isProcurementOnly) {
+                    $data['comments'] = $approval->comments;
+                }
+                return $data;
             }),
-            'activity_logs' => $this->whenLoaded('activityLogs', fn () => $this->activityLogs->map(function ($log) {
+            'activity_logs' => $this->when($canSeeFinancials && $this->relationLoaded('activityLogs'), fn () => $this->activityLogs->map(function ($log) use ($canSeeFullBudget) {
                 return [
                     'id' => $log->id,
                     'action' => $log->action,
-                    'old_values' => $log->old_values,
-                    'new_values' => $log->new_values,
+                    'old_values' => $canSeeFullBudget ? $log->old_values : $this->withoutBudgetAmounts($log->old_values),
+                    'new_values' => $canSeeFullBudget ? $log->new_values : $this->withoutBudgetAmounts($log->new_values),
                     'created_at' => $log->created_at?->toDateTimeString(),
                     'actor' => [
                         'id' => $log->actor?->id,
@@ -103,8 +115,30 @@ class PurchaseRequisitionResource extends JsonResource
             $base['estimated_amount'] = $this->estimated_amount;
             $base['committed_amount'] = $this->committed_amount;
             $base['estimate_difference_reason'] = $this->estimate_difference_reason;
+            $base['budget_shortfall_reason'] = $this->budget_shortfall_reason;
         }
 
+        $budgetService = app(RequisitionBudgetService::class);
+        $base['budget_check'] = $budgetService->visibleCheck($budgetService->checkAvailability($this->resource), $request->user());
+        $base['budget_check_record'] = [
+            'status' => $this->budget_check_status,
+            'checked_at' => $this->budget_checked_at?->toDateTimeString(),
+            'shortfall_acknowledged' => $this->budget_shortfall_acknowledged,
+            'shortfall_acknowledged_at' => $this->budget_shortfall_acknowledged_at?->toDateTimeString(),
+        ];
+
         return $base;
+    }
+
+    private function withoutBudgetAmounts(?array $values): array
+    {
+        return collect($values ?? [])->except([
+            'budget_available_at_check',
+            'budget_shortfall_amount',
+            'available_amount',
+            'approved_amount',
+            'committed_amount',
+            'spent_amount',
+        ])->all();
     }
 }

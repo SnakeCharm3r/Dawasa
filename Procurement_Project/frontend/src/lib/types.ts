@@ -1,6 +1,7 @@
 export type Role =
   | "super_admin"
   | "gm"
+  | "ceo"
   | "accountant"
   | "procurement_officer"
   | "department_head"
@@ -8,7 +9,8 @@ export type Role =
   | "auditor"
   | "line_manager"
   | "receiving_officer"
-  | "storekeeper";
+  | "storekeeper"
+  | "supplier";
 
 export type AuthUser = {
   id: number;
@@ -16,6 +18,7 @@ export type AuthUser = {
   first_name: string | null;
   last_name: string | null;
   email: string;
+  email_verified_at: string | null;
   job_title: string | null;
   is_line_manager: boolean;
   roles: Role[];
@@ -23,6 +26,12 @@ export type AuthUser = {
     id: number;
     name: string;
     business_entity: { id: number; name: string } | null;
+  } | null;
+  supplier: {
+    id: number;
+    name: string;
+    application_reference: string;
+    status: string;
   } | null;
 };
 

@@ -6,19 +6,22 @@ use App\Models\PurchaseRequisition;
 use App\Models\PurchaseRequisitionItem;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class PurchaseRequisitionService
 {
     public function createDraft(User $requester, array $data): PurchaseRequisition
     {
+        $lineManager = $this->resolveLineManager($requester);
         $requisition = null;
-        DB::transaction(function () use ($requester, $data, &$requisition) {
+        DB::transaction(function () use ($requester, $lineManager, $data, &$requisition) {
             $requisition = PurchaseRequisition::create([
                 'requisition_number' => $this->generateRequisitionNumber(),
                 'business_entity_id' => $data['business_entity_id'],
                 'department_id' => $data['department_id'],
+                'supplier_category_id' => $data['supplier_category_id'],
                 'requester_id' => $requester->id,
-                'line_manager_id' => $requester->line_manager_id,
+                'line_manager_id' => $lineManager->id,
                 'required_date' => $data['required_date'],
                 'purpose' => $data['purpose'],
                 'estimated_amount' => $data['estimated_amount'],
@@ -50,12 +53,26 @@ class PurchaseRequisitionService
         return $requisition->load(['items']);
     }
 
+    public function resolveLineManager(User $requester): User
+    {
+        $lineManager = $requester->assignedLineManagerInDepartment();
+
+        if (! $lineManager) {
+            throw ValidationException::withMessages([
+                'line_manager_id' => 'Assign an active line manager from the requester\'s department before creating or submitting this requisition.',
+            ]);
+        }
+
+        return $lineManager;
+    }
+
     public function updateDraft(PurchaseRequisition $requisition, array $data): PurchaseRequisition
     {
         DB::transaction(function () use ($requisition, $data) {
             $requisition->update([
                 'business_entity_id' => $data['business_entity_id'] ?? $requisition->business_entity_id,
                 'department_id' => $data['department_id'] ?? $requisition->department_id,
+                'supplier_category_id' => $data['supplier_category_id'] ?? $requisition->supplier_category_id,
                 'required_date' => $data['required_date'] ?? $requisition->required_date,
                 'purpose' => $data['purpose'] ?? $requisition->purpose,
                 'estimated_amount' => $data['estimated_amount'] ?? $requisition->estimated_amount,

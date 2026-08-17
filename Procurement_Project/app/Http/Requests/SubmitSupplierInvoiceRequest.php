@@ -2,9 +2,9 @@
 
 namespace App\Http\Requests;
 
-use Illuminate\Foundation\Http\FormRequest;
+use App\Http\Requests\CeoAwareFormRequest;
 
-class SubmitSupplierInvoiceRequest extends FormRequest
+class SubmitSupplierInvoiceRequest extends CeoAwareFormRequest
 {
     public function authorize(): bool
     {

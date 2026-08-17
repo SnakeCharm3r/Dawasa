@@ -4,7 +4,7 @@ import { useAuth } from "@/components/auth-provider";
 import { api, ApiError } from "@/lib/api";
 import type { ActionSpec } from "@/lib/modules";
 import type { JsonRecord } from "@/lib/types";
-import { Building2, CalendarDays, Check, CircleDot, Clock3, FileText, LoaderCircle, Pencil, Printer, UserRound, X } from "lucide-react";
+import { AlertTriangle, Building2, CalendarDays, Check, CircleDot, Clock3, FileText, LoaderCircle, Pencil, PiggyBank, Printer, UserRound, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 type Props = {
@@ -32,8 +32,8 @@ export function RequisitionWorkspaceModal({ item, actions, close, act, edit }: P
     return () => { active = false; };
   }, [item]);
 
-  const visibleActions = useMemo(
-    () => user ? actions.filter((action) => action.visible(requisition, user)) : [],
+  const workspaceActions = useMemo(
+    () => user ? actions.filter((action) => action.appliesTo ? action.appliesTo(requisition) : action.visible(requisition, user)) : [],
     [actions, requisition, user],
   );
   const items = (requisition.items as JsonRecord[] | undefined) ?? [];
@@ -44,8 +44,10 @@ export function RequisitionWorkspaceModal({ item, actions, close, act, edit }: P
   const entity = objectAt(requisition, "business_entity");
   const department = objectAt(requisition, "department");
   const estimatedTotal = Number(requisition.estimated_amount ?? items.reduce((sum, line) => sum + Number(line.estimated_total ?? 0), 0));
+  const budget = objectAt(requisition, "budget_check");
+  const hasFullBudget = Object.prototype.hasOwnProperty.call(budget, "total_allocated_budget");
   const stage = currentStage(String(requisition.status ?? "draft"), manager);
-  const canEdit = String(requisition.status) === "draft" && Number(requester.id) === user?.id;
+  const canEdit = ["draft", "returned"].includes(String(requisition.status)) && Number(requester.id) === user?.id;
 
   return (
     <div className="requisition-workspace-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
@@ -100,12 +102,21 @@ export function RequisitionWorkspaceModal({ item, actions, close, act, edit }: P
             </main>
 
             <aside className="requisition-approval-panel">
+              {Object.keys(budget).length > 0 && <section className={`requisition-budget-card ${budget.sufficient ? "sufficient" : "shortfall"}`}>
+                <div className="budget-card-heading">{budget.sufficient ? <PiggyBank size={20} /> : <AlertTriangle size={20} />}<div><span>Organisation budget check</span><strong>{budget.sufficient ? "Budget available" : "Funding shortfall recorded"}</strong></div></div>
+                {hasFullBudget && <div className="budget-card-numbers executive"><div><span>Total allocated budget</span><strong>{budget.total_allocated_budget == null ? "Not configured" : money(Number(budget.total_allocated_budget))}</strong></div><div><span>Total used so far</span><strong>{budget.total_used_amount == null ? "—" : money(Number(budget.total_used_amount))}</strong></div><div><span>Available amount</span><strong>{budget.available_amount == null ? "—" : money(Number(budget.available_amount))}</strong></div></div>}
+                <p>{String(budget.message ?? "Budget position checked against the active financial year.")}</p>
+                {Boolean(requisition.budget_shortfall_reason) && <div className="budget-justification"><span>Funding / loan justification</span><p>{String(requisition.budget_shortfall_reason)}</p></div>}
+              </section>}
               <div className="approval-panel-heading"><div><p className="eyebrow">Pending request</p><h2>Approval route</h2></div><span className={`status status-${stage.tone}`}>{stage.label}</span></div>
               <div className="current-approval-stage">
                 <div className="approval-avatar">{initials(stage.owner)}</div>
                 <div><span>Current owner</span><strong>{stage.owner}</strong><p>{stage.description}</p></div>
               </div>
-              {visibleActions.length > 0 && <div className="requisition-approval-actions">{visibleActions.map((action) => <button key={action.label} className={action.tone === "danger" ? "danger-button compact" : action.tone === "primary" ? "primary-button compact" : "secondary-button compact"} onClick={() => act(action, requisition)}>{action.label}</button>)}</div>}
+              {workspaceActions.length > 0 && <div className="requisition-approval-actions">{workspaceActions.map((action) => {
+                const permitted = Boolean(user && action.visible(requisition, user));
+                return <button key={action.label} disabled={!permitted} aria-disabled={!permitted} title={permitted ? action.label : `Only ${stage.owner} can perform this action at the current stage.`} className={action.tone === "danger" ? "danger-button compact" : action.tone === "primary" ? "primary-button compact" : "secondary-button compact"} onClick={() => permitted && act(action, requisition)}>{action.label}</button>;
+              })}{user && workspaceActions.every((action) => !action.visible(requisition, user)) && <p className="approval-actions-readonly">View only — awaiting action from {stage.owner}.</p>}</div>}
               <div className="approval-route-list">
                 <ApprovalRoute label="Request created" person={String(requester.name ?? "Requester")} state="complete" date={requisition.created_at} />
                 {approvals.map((approval) => <ApprovalRoute key={String(approval.id)} label={humanize(String(approval.action ?? "Reviewed"))} person={String(objectAt(approval, "actor").name ?? "System user")} state={approvalState(String(approval.action ?? ""))} date={approval.action_at} comments={approval.comments} />)}
@@ -144,6 +155,7 @@ function currentStage(status: string, manager: JsonRecord) {
   const stages: Record<string, { label: string; owner: string; description: string; tone: string }> = {
     draft: { label: "Draft preparation", owner: "Requester", description: "Complete and submit this request.", tone: "draft" },
     submitted: { label: "Manager approval", owner: String(manager.name ?? "Line manager"), description: "Review budget need and business purpose.", tone: "submitted" },
+    pending_gm_approval: { label: "GM requisition approval", owner: "General Manager", description: "Give final approval before the request is released to sourcing.", tone: "submitted" },
     returned: { label: "Corrections required", owner: "Requester", description: "Revise the request before resubmission.", tone: "returned" },
     approved_for_sourcing: { label: "Procurement sourcing", owner: "Procurement team", description: "Obtain and assess supplier proformas.", tone: "active" },
     quotations_ready: { label: "Proforma selection", owner: "Procurement team", description: "Select a proforma for final approval.", tone: "pending" },

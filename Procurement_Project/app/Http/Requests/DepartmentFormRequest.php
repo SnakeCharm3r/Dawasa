@@ -3,10 +3,10 @@
 namespace App\Http\Requests;
 
 use Illuminate\Contracts\Validation\ValidationRule;
-use Illuminate\Foundation\Http\FormRequest;
+use App\Http\Requests\CeoAwareFormRequest;
 use Illuminate\Validation\Rule;
 
-class DepartmentFormRequest extends FormRequest
+class DepartmentFormRequest extends CeoAwareFormRequest
 {
     /**
      * Determine if the user is authorized to make this request.

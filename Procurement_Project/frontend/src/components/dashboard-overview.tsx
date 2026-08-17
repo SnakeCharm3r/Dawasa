@@ -1,21 +1,24 @@
 "use client";
 
 import { useAuth } from "@/components/auth-provider";
+import { useEntityScope } from "@/components/entity-scope-provider";
 import { api, collectionFrom, valueAt } from "@/lib/api";
 import type { JsonRecord } from "@/lib/types";
-import { AlertCircle, ArrowRight, Banknote, CheckCircle2, Clock3, FileText, RefreshCw, ShoppingCart } from "lucide-react";
+import { AlertCircle, ArrowRight, Banknote, Building2, CheckCircle2, Clock3, FileText, RefreshCw, ShoppingCart } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Metric = { label: string; value: string; tone: string };
 
 function dashboardEndpoint(roles: string[]) {
+  if (roles.includes("ceo")) return "executive";
   if (roles.includes("storekeeper") || roles.includes("receiving_officer")) return "requester";
   if (roles.includes("procurement_officer")) return "operational";
   if (roles.includes("accountant")) return "finance";
+  if (roles.includes("gm")) return "executive";
   if (roles.includes("requester") || roles.includes("department_head") || roles.includes("line_manager")) return "requester";
-  if (roles.includes("auditor")) return "auditor";
-  return "executive";
+  if (roles.includes("auditor") || roles.includes("super_admin")) return "auditor";
+  return "requester";
 }
 
 function label(key: string) {
@@ -65,6 +68,7 @@ function dashboardMetrics(data: JsonRecord, endpoint: string): Metric[] {
 
 export function DashboardOverview() {
   const { user } = useAuth();
+  const { entities, selectedEntityId } = useEntityScope();
   const [dashboard, setDashboard] = useState<JsonRecord>({});
   const [requisitions, setRequisitions] = useState<JsonRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -77,8 +81,8 @@ export function DashboardOverview() {
     setError("");
     try {
       const [summary, recent] = await Promise.all([
-        api<JsonRecord>(`admin/dashboard/${endpoint}`),
-        api<JsonRecord>("admin/purchase-requisitions?per_page=6"),
+        api<JsonRecord>(`admin/dashboard/${endpoint}${selectedEntityId ? `?business_entity_id=${selectedEntityId}` : ""}`),
+        api<JsonRecord>(`admin/purchase-requisitions?per_page=6${selectedEntityId ? `&business_entity_id=${selectedEntityId}` : ""}`),
       ]);
       setDashboard((summary.data as JsonRecord) ?? summary);
       setRequisitions(collectionFrom(recent).rows);
@@ -87,7 +91,7 @@ export function DashboardOverview() {
     } finally {
       setLoading(false);
     }
-  }, [endpoint, user]);
+  }, [endpoint, selectedEntityId, user]);
 
   useEffect(() => { void load(); }, [load]);
   const metrics = useMemo(() => dashboardMetrics(dashboard, endpoint), [dashboard, endpoint]);
@@ -95,12 +99,21 @@ export function DashboardOverview() {
     ? Array.from({ length: 4 }, () => null)
     : metrics.slice(0, 4);
   const firstName = user?.first_name ?? user?.name.split(" ")[0] ?? "there";
+  const isCeo = user?.roles.includes("ceo") ?? false;
+  const currentEntity = isCeo
+    ? selectedEntityId
+      ? entities.find((entity) => String(entity.id) === selectedEntityId)?.name ?? "Selected business entity"
+      : "All business entities"
+    : user?.department?.business_entity?.name ?? "Entity not assigned";
 
   return (
     <div className="page-stack">
       <section className="page-heading dashboard-heading">
         <div><p className="eyebrow">Today&apos;s control desk</p><h1>Good day, {firstName}</h1><p>Here is the work currently moving through your procurement responsibilities.</p></div>
-        <button className="secondary-button" onClick={() => void load()} disabled={loading}><RefreshCw size={16} className={loading ? "spin" : ""} />Refresh</button>
+        <div className="dashboard-heading-actions">
+          <div className="dashboard-entity-context"><Building2 size={18} /><span><small>Current entity view</small><strong>{currentEntity}</strong></span></div>
+          <button className="secondary-button" onClick={() => void load()} disabled={loading}><RefreshCw size={16} className={loading ? "spin" : ""} />Refresh</button>
+        </div>
       </section>
       {error && <div className="inline-error"><AlertCircle size={18} />{error}</div>}
       <section className="kpi-grid" aria-label="Procurement overview">

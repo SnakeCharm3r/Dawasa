@@ -3,9 +3,9 @@
 namespace App\Http\Requests;
 
 use Illuminate\Contracts\Validation\ValidationRule;
-use Illuminate\Foundation\Http\FormRequest;
+use App\Http\Requests\CeoAwareFormRequest;
 
-class StoreProcurementClosureRequest extends FormRequest
+class StoreProcurementClosureRequest extends CeoAwareFormRequest
 {
     /**
      * Determine if the user is authorized to make this request.

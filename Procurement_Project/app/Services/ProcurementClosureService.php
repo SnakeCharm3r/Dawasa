@@ -218,7 +218,7 @@ class ProcurementClosureService
             throw new RuntimeException('Closure is not pending requester confirmation.');
         }
 
-        if ($closure->purchaseRequisition->requester_id !== $actor->id && ! $actor->hasRole('super_admin')) {
+        if ($closure->purchaseRequisition->requester_id !== $actor->id && ! $actor->hasAnyRole(['super_admin', 'ceo'])) {
             throw new RuntimeException('Only the original requester can confirm closure.');
         }
 
@@ -256,7 +256,7 @@ class ProcurementClosureService
             throw new RuntimeException('Closure must be confirmed before closing.');
         }
 
-        if ($closure->requester_confirmed_by === $actor->id && ! $actor->hasRole('super_admin')) {
+        if ($closure->requester_confirmed_by === $actor->id && ! $actor->hasAnyRole(['super_admin', 'ceo'])) {
             throw new RuntimeException('Requester cannot perform final closure.');
         }
 
@@ -280,7 +280,7 @@ class ProcurementClosureService
 
     public function closeWithException(ProcurementClosure $closure, User $actor, string $reason, ?string $comments = null): ProcurementClosure
     {
-        if (! $actor->hasAnyRole(['super_admin', 'gm'])) {
+        if (! $actor->hasAnyRole(['super_admin', 'gm', 'ceo'])) {
             throw new RuntimeException('Only GM or Super Admin can close with exception.');
         }
 

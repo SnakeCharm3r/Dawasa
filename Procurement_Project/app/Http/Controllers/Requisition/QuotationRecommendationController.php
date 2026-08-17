@@ -11,6 +11,7 @@ use App\Http\Resources\QuotationRecommendationResource;
 use App\Models\PurchaseRequisition;
 use App\Models\QuotationRecommendation;
 use App\Services\QuotationRecommendationService;
+use App\Services\EntityAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -19,7 +20,7 @@ class QuotationRecommendationController extends Controller
 {
     private QuotationRecommendationService $service;
 
-    public function __construct(QuotationRecommendationService $service)
+    public function __construct(QuotationRecommendationService $service, private readonly EntityAccessService $entityAccess)
     {
         $this->middleware('auth');
         $this->service = $service;
@@ -32,7 +33,7 @@ class QuotationRecommendationController extends Controller
         $query = QuotationRecommendation::with(['selectedQuotation.supplier', 'recommendedBy', 'requisition']);
         $user = Auth::user();
 
-        if ($user->hasRole(['super_admin', 'accountant', 'gm', 'auditor'])) {
+        if ($user->hasRole(['super_admin', 'accountant', 'gm', 'ceo', 'auditor'])) {
             // full access
         } elseif ($user->hasRole('procurement_officer')) {
             $query->whereHas('requisition', function ($query) {
@@ -42,11 +43,14 @@ class QuotationRecommendationController extends Controller
                     PurchaseRequisition::STATUS_RETURNED_TO_SOURCING,
                 ]);
             });
-        } elseif ($user->hasRole('department_head')) {
-            $query->whereHas('requisition', fn ($query) => $query->where('department_id', $user->department_id));
+        } elseif ($user->hasAnyRole(['line_manager', 'department_head'])) {
+            $query->whereHas('requisition', fn ($requisition) => $requisition
+                ->where(fn ($owned) => $owned->where('line_manager_id', $user->id)->orWhere('requester_id', $user->id)));
         } else {
-            $query->where('recommended_by', $user->id);
+            $query->whereHas('requisition', fn ($requisition) => $requisition->where('requester_id', $user->id));
         }
+
+        $this->entityAccess->apply($query, $request, $user, 'requisition');
 
         if ($request->filled('status')) {
             $query->where('status', $request->input('status'));
@@ -92,17 +96,22 @@ class QuotationRecommendationController extends Controller
     public function compare(PurchaseRequisition $purchaseRequisition): JsonResponse
     {
         $this->authorize('view', $purchaseRequisition);
-        $purchaseRequisition->load(['supplierQuotations.supplier', 'items']);
+        $purchaseRequisition->load(['supplierQuotations.supplier.currentPerformance', 'supplierQuotations.supplier.performanceIncidents', 'items']);
 
         $supplierQuotations = $purchaseRequisition->supplierQuotations()
             ->valid()
-            ->with('supplier')
+            ->with(['supplier.currentPerformance', 'supplier.performanceIncidents'])
             ->get()
             ->map(fn ($quotation) => [
                 'id' => $quotation->id,
                 'supplier' => [
                     'id' => $quotation->supplier?->id,
                     'name' => $quotation->supplier?->name,
+                    'compliance_status' => $quotation->supplier?->compliance_status,
+                    'award_eligibility' => $quotation->supplier?->award_eligibility,
+                    'performance_grade' => $quotation->supplier?->currentPerformance?->grade,
+                    'delivery_score' => $quotation->supplier?->currentPerformance?->delivery_score,
+                    'open_critical_incidents' => $quotation->supplier?->performanceIncidents->whereNull('resolved_at')->where('severity', 'critical')->count(),
                 ],
                 'total_amount' => $quotation->total_amount,
                 'status' => $quotation->status,

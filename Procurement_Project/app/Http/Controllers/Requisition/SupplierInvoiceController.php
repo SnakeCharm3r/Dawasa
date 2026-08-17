@@ -18,9 +18,12 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use App\Services\EntityAccessService;
 
 class SupplierInvoiceController extends Controller
 {
+    public function __construct(private readonly EntityAccessService $entityAccess) {}
+
     protected function loadRelations(SupplierInvoice $invoice): void
     {
         $invoice->load([
@@ -41,6 +44,16 @@ class SupplierInvoiceController extends Controller
         $this->authorize('viewAny', SupplierInvoice::class);
 
         $query = SupplierInvoice::with(['purchaseOrder.requisition', 'purchaseOrder.selectedQuotation', 'supplier', 'businessEntity', 'submittedBy']);
+        $user = Auth::user();
+
+        if ($user->hasAnyRole(['line_manager', 'department_head'])) {
+            $query->whereHas('purchaseOrder.requisition', fn ($requisition) => $requisition
+                ->where(fn ($owned) => $owned->where('line_manager_id', $user->id)->orWhere('requester_id', $user->id)));
+        } elseif ($user->hasRole('requester')) {
+            $query->whereHas('purchaseOrder.requisition', fn ($requisition) => $requisition->where('requester_id', $user->id));
+        }
+
+        $this->entityAccess->apply($query, $request, $user);
 
         if ($request->has('po_number')) {
             $query->whereHas('purchaseOrder', fn ($q) => $q->where('purchase_order_number', 'like', '%'.$request->input('po_number').'%'));
@@ -48,10 +61,6 @@ class SupplierInvoiceController extends Controller
 
         if ($request->has('supplier_id')) {
             $query->where('supplier_id', $request->input('supplier_id'));
-        }
-
-        if ($request->has('business_entity_id')) {
-            $query->where('business_entity_id', $request->input('business_entity_id'));
         }
 
         if ($request->has('status')) {
@@ -93,6 +102,7 @@ class SupplierInvoiceController extends Controller
         $this->authorize('create', SupplierInvoice::class);
 
         $po = PurchaseOrder::findOrFail($request->input('purchase_order_id'));
+        abort_unless($this->entityAccess->canAccess($request->user(), $po->business_entity_id), 403);
 
         $hasAcceptedDelivery = GoodsReceiptNote::where('purchase_order_id', $po->id)
             ->whereIn('status', [

@@ -4,10 +4,10 @@ namespace App\Http\Requests;
 
 use App\Models\EntityBudget;
 use Illuminate\Contracts\Validation\ValidationRule;
-use Illuminate\Foundation\Http\FormRequest;
+use App\Http\Requests\CeoAwareFormRequest;
 use Illuminate\Validation\ValidationException;
 
-class ApproveEntityBudgetRequest extends FormRequest
+class ApproveEntityBudgetRequest extends CeoAwareFormRequest
 {
     public function authorize(): bool
     {

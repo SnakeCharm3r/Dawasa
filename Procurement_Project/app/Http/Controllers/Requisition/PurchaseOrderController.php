@@ -11,6 +11,7 @@ use App\Http\Resources\PurchaseOrderResource;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseRequisition;
 use App\Services\PurchaseOrderService;
+use App\Services\EntityAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -18,7 +19,7 @@ use Illuminate\Support\Facades\Auth;
 
 class PurchaseOrderController extends Controller
 {
-    public function __construct(protected PurchaseOrderService $service) {}
+    public function __construct(protected PurchaseOrderService $service, private readonly EntityAccessService $entityAccess) {}
 
     protected function runProtected(callable $callback): JsonResponse
     {
@@ -59,21 +60,19 @@ class PurchaseOrderController extends Controller
             'businessEntity',
         ]);
 
-        if ($user->hasRole('requester')) {
+        if ($user->hasAnyRole(['line_manager', 'department_head'])) {
+            $query->whereHas('requisition', fn ($q) => $q
+                ->where(fn ($owned) => $owned->where('line_manager_id', $user->id)->orWhere('requester_id', $user->id)))
+                ->where('status', PurchaseOrder::STATUS_ISSUED);
+        } elseif ($user->hasRole('requester')) {
             $query->whereHas('requisition', fn ($q) => $q->where('requester_id', $user->id))
                 ->where('status', PurchaseOrder::STATUS_ISSUED);
-        } elseif ($user->hasRole('department_head')) {
-            $query->whereHas('requisition', fn ($q) => $q->where('department_id', $user->department_id))
-                ->where('status', PurchaseOrder::STATUS_ISSUED);
-        } elseif ($user->hasRole('gm')) {
-            $query->whereIn('status', [
-                PurchaseOrder::STATUS_CONFIRMED,
-                PurchaseOrder::STATUS_ISSUED,
-                PurchaseOrder::STATUS_ACKNOWLEDGED,
-                PurchaseOrder::STATUS_PARTIALLY_RECEIVED,
-                PurchaseOrder::STATUS_FULLY_RECEIVED,
-                PurchaseOrder::STATUS_CLOSED,
-            ]);
+        }
+
+        $this->entityAccess->apply($query, $request, $user);
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->input('status'));
         }
 
         $orders = $query->orderByDesc('id')->paginate($request->input('per_page', 15));
@@ -95,6 +94,7 @@ class PurchaseOrderController extends Controller
         $this->authorize('create', PurchaseOrder::class);
 
         $requisition = PurchaseRequisition::findOrFail($request->input('purchase_requisition_id'));
+        abort_unless($this->entityAccess->canAccess($request->user(), $requisition->business_entity_id), 403);
 
         $operational = $request->only([
             'order_date', 'expected_delivery_date', 'currency',

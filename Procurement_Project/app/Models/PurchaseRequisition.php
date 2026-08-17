@@ -16,6 +16,8 @@ class PurchaseRequisition extends Model
 
     public const STATUS_SUBMITTED = 'submitted';
 
+    public const STATUS_PENDING_GM_APPROVAL = 'pending_gm_approval';
+
     public const STATUS_RETURNED = 'returned';
 
     public const STATUS_REJECTED = 'rejected';
@@ -42,6 +44,14 @@ class PurchaseRequisition extends Model
         'purpose',
         'estimated_amount',
         'committed_amount',
+        'budget_check_status',
+        'budget_available_at_check',
+        'budget_shortfall_amount',
+        'budget_checked_at',
+        'budget_shortfall_acknowledged',
+        'budget_shortfall_acknowledged_at',
+        'budget_shortfall_acknowledged_by',
+        'budget_shortfall_reason',
         'status',
         'submitted_at',
         'approved_at',
@@ -49,12 +59,18 @@ class PurchaseRequisition extends Model
         'rejected_at',
         'cancelled_at',
         'estimate_difference_reason',
+        'supplier_category_id',
     ];
 
     protected $casts = [
         'required_date' => 'date',
         'estimated_amount' => 'decimal:2',
         'committed_amount' => 'decimal:2',
+        'budget_available_at_check' => 'decimal:2',
+        'budget_shortfall_amount' => 'decimal:2',
+        'budget_checked_at' => 'datetime',
+        'budget_shortfall_acknowledged' => 'boolean',
+        'budget_shortfall_acknowledged_at' => 'datetime',
         'submitted_at' => 'datetime',
         'approved_at' => 'datetime',
         'returned_at' => 'datetime',
@@ -117,6 +133,11 @@ class PurchaseRequisition extends Model
     public function purchaseOrder(): HasOne
     {
         return $this->hasOne(PurchaseOrder::class, 'purchase_requisition_id');
+    }
+
+    public function supplierCategory(): BelongsTo
+    {
+        return $this->belongsTo(SupplierCategory::class);
     }
 
     public function getEstimatedAmountAttribute($value)

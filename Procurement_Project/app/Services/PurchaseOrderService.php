@@ -16,6 +16,8 @@ use Illuminate\Support\Facades\DB;
 
 class PurchaseOrderService
 {
+    public function __construct(private readonly SupplierPerformanceService $supplierPerformance) {}
+
     public function createDraftFromRequisition(PurchaseRequisition $requisition, User $actor, array $operational = []): PurchaseOrder
     {
         return DB::transaction(function () use ($requisition, $actor, $operational) {
@@ -334,6 +336,15 @@ class PurchaseOrderService
                 ['status' => $oldStatus],
                 ['status' => PurchaseOrder::STATUS_CANCELLED, 'cancellation_reason' => $reason]
             );
+
+            $this->supplierPerformance->recordIncident($order->supplier, [
+                'purchase_order_id' => $order->id,
+                'incident_type' => 'cancelled_po',
+                'severity' => 'high',
+                'description' => "Purchase order {$order->purchase_order_number} was cancelled: {$reason}",
+                'occurred_at' => now(),
+            ], $actor, false);
+            $this->supplierPerformance->calculate($order->supplier, $order->business_entity_id, $actor);
 
             return $order->fresh();
         });

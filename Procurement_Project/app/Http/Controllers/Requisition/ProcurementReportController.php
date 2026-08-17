@@ -16,9 +16,22 @@ use App\Models\SupplierQuotation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use App\Services\EntityAccessService;
 
 class ProcurementReportController extends Controller
 {
+    public function __construct(private readonly EntityAccessService $entityAccess)
+    {
+        $this->middleware(function (Request $request, $next) {
+            $entityId = $this->entityAccess->entityId($request, $request->user());
+            if ($entityId !== null) {
+                $request->merge(['business_entity_id' => $entityId]);
+            }
+
+            return $next($request);
+        });
+    }
+
     protected function applyEntityFilter($query, Request $request)
     {
         if ($request->has('business_entity_id')) {
@@ -174,6 +187,8 @@ class ProcurementReportController extends Controller
 
     public function budgetCommitmentReport(Request $request): JsonResponse
     {
+        $this->authorizeBudgetDisclosure();
+
         $data = BudgetTransaction::with(['businessEntity', 'financialYear', 'actor'])
             ->when($request->has('business_entity_id'), fn ($q) => $q->where('business_entity_id', $request->input('business_entity_id')))
             ->when($request->has('financial_year_id'), fn ($q) => $q->where('financial_year_id', $request->input('financial_year_id')))
@@ -185,6 +200,8 @@ class ProcurementReportController extends Controller
 
     public function procurementSpendReport(Request $request): JsonResponse
     {
+        $this->authorizeBudgetDisclosure();
+
         $groupBy = $request->input('group_by', 'entity');
 
         $query = PaymentVoucher::where('status', PaymentVoucher::STATUS_PAID);
@@ -351,5 +368,10 @@ class ProcurementReportController extends Controller
         })->values();
 
         return response()->json(['data' => $sorted]);
+    }
+
+    private function authorizeBudgetDisclosure(): void
+    {
+        abort_unless(auth()->user()->hasAnyRole(['accountant', 'gm', 'ceo']), 403);
     }
 }

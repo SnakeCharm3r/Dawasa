@@ -2,9 +2,9 @@
 
 namespace App\Http\Requests;
 
-use Illuminate\Foundation\Http\FormRequest;
+use App\Http\Requests\CeoAwareFormRequest;
 
-class StoreGoodsReceiptNoteRequest extends FormRequest
+class StoreGoodsReceiptNoteRequest extends CeoAwareFormRequest
 {
     public function authorize(): bool
     {

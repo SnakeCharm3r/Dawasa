@@ -1,0 +1,4 @@
+import { PublicFooter, PublicHeader } from "@/components/portal/public-shell";
+import { CircleCheckBig } from "lucide-react";
+import Link from "next/link";
+export default async function SuccessPage({ searchParams }: { searchParams: Promise<{ reference?: string }> }) { const { reference } = await searchParams; return <div className="portal-site"><PublicHeader /><main className="success-page portal-container"><CircleCheckBig size={52} /><span className="eyebrow">Application received</span><h1>Thank you for registering</h1><p>Your supplier application has been submitted for verification. Keep this reference for future correspondence.</p><strong>{reference ?? "Reference pending"}</strong><div><Link className="portal-button primary" href="/supplier-login">Sign in to view status</Link><Link className="portal-button secondary" href="/tenders">Browse open tenders</Link></div></main><PublicFooter /></div>; }

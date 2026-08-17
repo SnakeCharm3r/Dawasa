@@ -32,6 +32,12 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        // The CEO is the organisation-wide oversight role. Keep this override in
+        // one place so new policies automatically inherit CEO access.
+        Gate::before(function (User $user): ?bool {
+            return $user->hasRole('ceo') ? true : null;
+        });
+
         Gate::policy(BusinessEntity::class, BusinessEntityPolicy::class);
         Gate::policy(Department::class, DepartmentPolicy::class);
         Gate::policy(EntityBudget::class, EntityBudgetPolicy::class);

@@ -3,9 +3,9 @@
 namespace App\Http\Requests;
 
 use App\Models\Department;
-use Illuminate\Foundation\Http\FormRequest;
+use App\Http\Requests\CeoAwareFormRequest;
 
-class UpdatePurchaseRequisitionRequest extends FormRequest
+class UpdatePurchaseRequisitionRequest extends CeoAwareFormRequest
 {
     public function authorize(): bool
     {
@@ -17,6 +17,7 @@ class UpdatePurchaseRequisitionRequest extends FormRequest
         return [
             'business_entity_id' => ['sometimes', 'integer', 'exists:business_entities,id'],
             'department_id' => ['sometimes', 'integer', 'exists:departments,id'],
+            'supplier_category_id' => ['sometimes', 'integer', 'exists:supplier_categories,id'],
             'required_date' => ['sometimes', 'date', 'after_or_equal:today'],
             'purpose' => ['sometimes', 'string', 'max:2000'],
             'estimated_amount' => ['sometimes', 'numeric', 'min:0.01'],

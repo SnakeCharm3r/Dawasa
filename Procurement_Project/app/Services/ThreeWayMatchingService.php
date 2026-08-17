@@ -13,6 +13,8 @@ use Illuminate\Support\Facades\DB;
 
 class ThreeWayMatchingService
 {
+    public function __construct(private readonly SupplierPerformanceService $supplierPerformance) {}
+
     public function calculateInvoiceableQuantity(PurchaseOrderItem $poItem): float
     {
         $acceptedGrnQuantity = GoodsReceiptNoteItem::where('purchase_order_item_id', $poItem->id)
@@ -120,6 +122,18 @@ class ThreeWayMatchingService
                 'matched_by' => $actor->id,
                 'matched_at' => now(),
             ]);
+
+            if ($matchStatus !== InvoiceMatchRecord::MATCH_STATUS_MATCHED) {
+                $this->supplierPerformance->recordIncident($invoice->supplier, [
+                    'purchase_order_id' => $po->id,
+                    'supplier_invoice_id' => $invoice->id,
+                    'incident_type' => 'invoice_variance',
+                    'severity' => 'medium',
+                    'description' => $matchRecord->variance_reason ?: 'Invoice matching variance recorded.',
+                    'occurred_at' => now(),
+                ], $actor, false);
+                $this->supplierPerformance->calculate($invoice->supplier, $po->business_entity_id, $actor);
+            }
 
             ActivityLog::record(
                 $actor,

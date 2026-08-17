@@ -17,6 +17,9 @@ class QuotationRecommendationResource extends JsonResource
                 'supplier' => [
                     'id' => $this->selectedQuotation?->supplier?->id,
                     'name' => $this->selectedQuotation?->supplier?->name,
+                    'compliance_status' => $this->selectedQuotation?->supplier?->compliance_status,
+                    'award_eligibility' => $this->selectedQuotation?->supplier?->award_eligibility,
+                    'performance_grade' => $this->selectedQuotation?->supplier?->currentPerformance?->grade,
                 ],
                 'total_amount' => $this->selectedQuotation?->total_amount,
                 'valid_until' => $this->selectedQuotation?->valid_until?->toDateString(),
@@ -47,7 +50,7 @@ class QuotationRecommendationResource extends JsonResource
             }),
         ];
 
-        if ($request->user()->hasAnyRole(['super_admin', 'accountant', 'gm', 'auditor'])) {
+        if ($request->user()->hasAnyRole(['super_admin', 'accountant', 'gm', 'ceo', 'auditor'])) {
             $data['requisition'] = [
                 'id' => $this->requisition?->id,
                 'requisition_number' => $this->requisition?->requisition_number,

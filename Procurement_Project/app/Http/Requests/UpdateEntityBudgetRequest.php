@@ -4,14 +4,14 @@ namespace App\Http\Requests;
 
 use App\Models\EntityBudget;
 use Illuminate\Contracts\Validation\ValidationRule;
-use Illuminate\Foundation\Http\FormRequest;
+use App\Http\Requests\CeoAwareFormRequest;
 use Illuminate\Validation\Rule;
 
-class UpdateEntityBudgetRequest extends FormRequest
+class UpdateEntityBudgetRequest extends CeoAwareFormRequest
 {
     public function authorize(): bool
     {
-        return auth()->check() && auth()->user()->hasRole(['super_admin', 'accountant']);
+        return auth()->check() && auth()->user()->hasRole('accountant');
     }
 
     public function rules(): array

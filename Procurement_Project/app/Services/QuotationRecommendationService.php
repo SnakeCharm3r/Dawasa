@@ -15,6 +15,8 @@ use Illuminate\Support\Facades\DB;
 
 class QuotationRecommendationService
 {
+    public function __construct(private readonly SupplierComplianceService $supplierCompliance) {}
+
     public function submitProformaForApproval(SupplierQuotation $quotation, array $data, User $actor): QuotationRecommendation
     {
         if ($quotation->status !== SupplierQuotation::STATUS_ACTIVE) {
@@ -141,6 +143,11 @@ class QuotationRecommendationService
     {
         if ($recommendation->status !== QuotationRecommendation::STATUS_SUBMITTED) {
             throw new \RuntimeException('Only submitted recommendations can be approved.');
+        }
+
+        $supplier = $recommendation->selectedQuotation?->supplier;
+        if (! $supplier || ! $this->supplierCompliance->canParticipate($supplier)) {
+            throw new \RuntimeException('The selected supplier must be approved, active, category-eligible, and fully compliant before award approval.');
         }
 
         return DB::transaction(function () use ($recommendation, $comments, $actor) {

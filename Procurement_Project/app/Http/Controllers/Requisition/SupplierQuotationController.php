@@ -7,8 +7,11 @@ use App\Http\Requests\StoreSupplierQuotationRequest;
 use App\Http\Requests\UpdateSupplierQuotationRequest;
 use App\Models\ActivityLog;
 use App\Models\PurchaseRequisition;
+use App\Models\Supplier;
 use App\Models\SupplierQuotation;
+use App\Services\EntityAccessService;
 use App\Services\QuotationRecommendationService;
+use App\Services\SupplierComplianceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -16,13 +19,27 @@ use Illuminate\Support\Facades\DB;
 
 class SupplierQuotationController extends Controller
 {
-    public function __construct(private readonly QuotationRecommendationService $recommendationService) {}
+    public function __construct(
+        private readonly QuotationRecommendationService $recommendationService,
+        private readonly EntityAccessService $entityAccess,
+        private readonly SupplierComplianceService $supplierCompliance,
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
         $this->authorize('viewAny', SupplierQuotation::class);
 
         $query = SupplierQuotation::with(['supplier', 'requisition', 'approvalRecommendation']);
+        $user = Auth::user();
+
+        if ($user->hasAnyRole(['line_manager', 'department_head'])) {
+            $query->whereHas('requisition', fn ($requisition) => $requisition
+                ->where(fn ($owned) => $owned->where('line_manager_id', $user->id)->orWhere('requester_id', $user->id)));
+        } elseif ($user->hasRole('requester')) {
+            $query->whereHas('requisition', fn ($requisition) => $requisition->where('requester_id', $user->id));
+        }
+
+        $this->entityAccess->apply($query, $request, $user, 'requisition');
 
         if ($request->has('requisition_id')) {
             $query->where('purchase_requisition_id', $request->input('requisition_id'));
@@ -46,6 +63,10 @@ class SupplierQuotationController extends Controller
         $this->authorize('create', SupplierQuotation::class);
 
         $requisition = PurchaseRequisition::findOrFail($request->input('purchase_requisition_id'));
+        $supplier = Supplier::findOrFail($request->input('supplier_id'));
+        abort_unless($this->entityAccess->canAccess($request->user(), $requisition->business_entity_id), 403);
+        abort_unless($this->supplierCompliance->canParticipate($supplier), 422, 'This supplier is not currently eligible for sourcing or award.');
+        abort_unless($supplier->categories()->whereKey($requisition->supplier_category_id)->exists(), 422, 'This supplier is not approved for the requisition category.');
 
         if (! in_array($requisition->status, [
             PurchaseRequisition::STATUS_APPROVED_FOR_SOURCING,

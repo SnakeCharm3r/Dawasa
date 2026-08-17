@@ -13,6 +13,8 @@ use Illuminate\Support\Facades\DB;
 
 class GoodsReceiptService
 {
+    public function __construct(private readonly SupplierPerformanceService $supplierPerformance) {}
+
     public function createDraftFromPurchaseOrder(PurchaseOrder $order, User $actor, array $data): GoodsReceiptNote
     {
         return DB::transaction(function () use ($order, $actor, $data) {
@@ -260,6 +262,22 @@ class GoodsReceiptService
                 ['status' => GoodsReceiptNote::STATUS_SUBMITTED],
                 ['status' => $grn->status, 'inspected_by' => $actor->id]
             );
+
+            $rejectedQuantity = $grn->items()->sum('quantity_rejected');
+            if ((float) $rejectedQuantity > 0) {
+                $this->supplierPerformance->recordIncident($grn->supplier, [
+                    'purchase_order_id' => $order->id,
+                    'goods_receipt_note_id' => $grn->id,
+                    'incident_type' => 'rejected_goods',
+                    'severity' => $allRejected ? 'high' : 'medium',
+                    'description' => "GRN {$grn->grn_number} recorded {$rejectedQuantity} rejected units during inspection.",
+                    'occurred_at' => now(),
+                ], $actor, false);
+            }
+
+            if ($order->status === PurchaseOrder::STATUS_FULLY_RECEIVED || (float) $rejectedQuantity > 0) {
+                $this->supplierPerformance->calculate($grn->supplier, $order->business_entity_id, $actor);
+            }
 
             return $grn->fresh();
         });

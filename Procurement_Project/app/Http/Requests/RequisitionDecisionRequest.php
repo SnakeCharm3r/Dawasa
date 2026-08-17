@@ -3,9 +3,9 @@
 namespace App\Http\Requests;
 
 use Illuminate\Contracts\Validation\ValidationRule;
-use Illuminate\Foundation\Http\FormRequest;
+use App\Http\Requests\CeoAwareFormRequest;
 
-class RequisitionDecisionRequest extends FormRequest
+class RequisitionDecisionRequest extends CeoAwareFormRequest
 {
     public function authorize(): bool
     {
