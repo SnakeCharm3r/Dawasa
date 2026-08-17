@@ -7,11 +7,14 @@ use App\Models\BusinessEntity;
 use App\Models\Department;
 use App\Models\EntityBudget;
 use App\Models\FinancialYear;
+use App\Models\GoodsReceiptNote;
+use App\Models\GoodsReceiptNoteItem;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderApproval;
 use App\Models\PurchaseRequisition;
 use App\Models\QuotationRecommendation;
 use App\Models\Supplier;
+use App\Models\SupplierInvoice;
 use App\Models\SupplierQuotation;
 use App\Models\SupplierQuotationItem;
 use App\Models\User;
@@ -449,5 +452,64 @@ class Phase6PurchaseOrderTest extends TestCase
             ->assertJsonPath('message', 'An invoice can only be recorded after the store or warehouse accepts a delivery against the LPO.');
 
         $this->assertDatabaseCount('supplier_invoices', 0);
+    }
+
+    public function test_supplier_invoice_totals_are_calculated_from_its_lines(): void
+    {
+        $scenario = $this->buildApprovedForPurchase();
+        $po = PurchaseOrder::find($this->createPo($scenario['requisition'])->json('data.id'));
+        $this->submitPo($po)->assertOk();
+        $this->confirmPo($po)->assertOk();
+        $this->issuePo($po)->assertOk();
+        $poItem = $po->items()->firstOrFail();
+        $poItem->update(['quantity_received' => 5]);
+
+        $receipt = GoodsReceiptNote::create([
+            'grn_number' => 'GRN-TOTALS',
+            'purchase_order_id' => $po->id,
+            'supplier_id' => $po->supplier_id,
+            'business_entity_id' => $po->business_entity_id,
+            'received_by' => $this->procurementOfficer->id,
+            'received_date' => now()->toDateString(),
+            'delivery_note_number' => 'DN-TOTALS',
+            'status' => GoodsReceiptNote::STATUS_ACCEPTED,
+        ]);
+
+        GoodsReceiptNoteItem::create([
+            'goods_receipt_note_id' => $receipt->id,
+            'purchase_order_item_id' => $poItem->id,
+            'item_name' => $poItem->item_name,
+            'quantity_ordered' => $poItem->quantity_ordered,
+            'quantity_received' => 5,
+            'quantity_accepted' => 5,
+            'quantity_rejected' => 0,
+            'unit' => $poItem->unit,
+            'condition_status' => GoodsReceiptNoteItem::CONDITION_ACCEPTED,
+        ]);
+
+        $response = $this->actingAs($this->accountant)
+            ->postJson('/admin/supplier-invoices', [
+                'invoice_number' => 'INV-SERVER-TOTALS',
+                'purchase_order_id' => $po->id,
+                'invoice_date' => now()->toDateString(),
+                'received_date' => now()->toDateString(),
+                'currency' => 'TZS',
+                'subtotal' => 999999,
+                'discount_amount' => 10,
+                'tax_amount' => 20,
+                'total_amount' => 999999,
+                'items' => [[
+                    'purchase_order_item_id' => $poItem->id,
+                    'quantity_invoiced' => 2,
+                    'unit_price' => 123.45,
+                ]],
+            ])
+            ->assertCreated();
+
+        $invoice = SupplierInvoice::findOrFail($response->json('data.id'));
+        $this->assertEquals(246.90, (float) $invoice->subtotal);
+        $this->assertEquals(256.90, (float) $invoice->total_amount);
+        $this->assertEquals(256.90, (float) $invoice->outstanding_amount);
+        $this->assertEquals(246.90, (float) $invoice->items()->firstOrFail()->line_total);
     }
 }

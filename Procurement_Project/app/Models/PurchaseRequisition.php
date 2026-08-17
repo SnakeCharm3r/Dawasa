@@ -97,6 +97,13 @@ class PurchaseRequisition extends Model
         return $this->hasMany(RequisitionApproval::class, 'purchase_requisition_id');
     }
 
+    public function activityLogs(): HasMany
+    {
+        return $this->hasMany(ActivityLog::class, 'subject_id')
+            ->where('subject_type', self::class)
+            ->latest();
+    }
+
     public function supplierQuotations(): HasMany
     {
         return $this->hasMany(SupplierQuotation::class, 'purchase_requisition_id');

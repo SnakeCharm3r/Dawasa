@@ -110,7 +110,7 @@ class PaymentVoucherController extends Controller
         $this->authorize('update', $paymentVoucher);
 
         return $this->runProtected(function () use ($paymentVoucher, $request) {
-            $paymentVoucher->update($request->validated());
+            $paymentVoucher = $this->service->updateVoucher($paymentVoucher, $request->validated());
             $this->loadRelations($paymentVoucher);
 
             return response()->json([

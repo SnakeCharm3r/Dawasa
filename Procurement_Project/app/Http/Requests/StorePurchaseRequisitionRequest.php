@@ -3,7 +3,6 @@
 namespace App\Http\Requests;
 
 use App\Models\Department;
-use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
 class StorePurchaseRequisitionRequest extends FormRequest
@@ -25,7 +24,7 @@ class StorePurchaseRequisitionRequest extends FormRequest
             'items.*.item_name' => ['required', 'string', 'max:255'],
             'items.*.specification' => ['nullable', 'string'],
             'items.*.quantity' => ['required', 'numeric', 'min:0.01'],
-            'items.*.unit' => ['required', 'string', 'max:100'],
+            'items.*.unit' => ['required', 'string', 'max:100', 'not_regex:/^\s*\d+(?:[.,]\d+)?\s*$/'],
             'items.*.estimated_unit_price' => ['nullable', 'numeric', 'min:0'],
             'items.*.estimated_total' => ['required', 'numeric', 'min:0.01'],
             'items.*.notes' => ['nullable', 'string'],

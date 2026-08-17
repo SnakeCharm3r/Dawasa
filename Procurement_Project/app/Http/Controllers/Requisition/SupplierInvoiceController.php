@@ -108,28 +108,35 @@ class SupplierInvoiceController extends Controller
         }
 
         return DB::transaction(function () use ($po, $request) {
+            $data = $request->validated();
+            [$subtotal, $total] = $this->calculateTotals(
+                $data['items'],
+                (float) ($data['discount_amount'] ?? 0),
+                (float) ($data['tax_amount'] ?? 0),
+            );
+
             $invoice = SupplierInvoice::create([
-                'invoice_number' => $request->input('invoice_number'),
+                'invoice_number' => $data['invoice_number'],
                 'supplier_id' => $po->supplier_id,
                 'purchase_order_id' => $po->id,
                 'business_entity_id' => $po->business_entity_id,
                 'financial_year_id' => $po->financial_year_id,
-                'invoice_date' => $request->input('invoice_date'),
-                'due_date' => $request->input('due_date'),
-                'received_date' => $request->input('received_date'),
-                'currency' => $request->input('currency', 'TZS'),
-                'subtotal' => $request->input('subtotal'),
-                'discount_amount' => $request->input('discount_amount', 0),
-                'tax_amount' => $request->input('tax_amount', 0),
-                'total_amount' => $request->input('total_amount'),
+                'invoice_date' => $data['invoice_date'],
+                'due_date' => $data['due_date'] ?? null,
+                'received_date' => $data['received_date'],
+                'currency' => $data['currency'] ?? 'TZS',
+                'subtotal' => $subtotal,
+                'discount_amount' => $data['discount_amount'] ?? 0,
+                'tax_amount' => $data['tax_amount'] ?? 0,
+                'total_amount' => $total,
                 'matched_amount' => 0,
                 'paid_amount' => 0,
-                'outstanding_amount' => $request->input('total_amount'),
+                'outstanding_amount' => $total,
                 'status' => SupplierInvoice::STATUS_DRAFT,
-                'notes' => $request->input('notes'),
+                'notes' => $data['notes'] ?? null,
             ]);
 
-            foreach ($request->input('items') as $itemData) {
+            foreach ($data['items'] as $itemData) {
                 $poItem = PurchaseOrderItem::findOrFail($itemData['purchase_order_item_id']);
                 if ($poItem->purchase_order_id !== $po->id) {
                     throw ValidationException::withMessages([
@@ -159,7 +166,7 @@ class SupplierInvoiceController extends Controller
                     'quantity_accepted' => $itemData['quantity_invoiced'],
                     'unit' => $poItem->unit,
                     'unit_price' => $itemData['unit_price'],
-                    'line_total' => $itemData['quantity_invoiced'] * $itemData['unit_price'],
+                    'line_total' => round((float) $itemData['quantity_invoiced'] * (float) $itemData['unit_price'], 2),
                 ]);
             }
 
@@ -177,21 +184,49 @@ class SupplierInvoiceController extends Controller
         $this->authorize('update', $supplierInvoice);
 
         return DB::transaction(function () use ($supplierInvoice, $request) {
-            $supplierInvoice->update($request->except('items'));
+            $data = $request->validated();
+            $supplierInvoice->update(collect($data)->except('items')->all());
 
-            if ($request->has('items')) {
-                foreach ($request->input('items') as $itemData) {
+            if (isset($data['items'])) {
+                foreach ($data['items'] as $itemData) {
                     $invoiceItem = SupplierInvoiceItem::findOrFail($itemData['id']);
+
+                    if ($invoiceItem->supplier_invoice_id !== $supplierInvoice->id) {
+                        throw ValidationException::withMessages([
+                            'items' => ['Every edited invoice line must belong to the selected invoice.'],
+                        ]);
+                    }
+
+                    $poItem = $invoiceItem->purchaseOrderItem;
+                    $invoicedElsewhere = SupplierInvoiceItem::where('purchase_order_item_id', $poItem->id)
+                        ->where('supplier_invoice_id', '!=', $supplierInvoice->id)
+                        ->sum('quantity_invoiced');
+                    $maximumQuantity = max(0, (float) $poItem->quantity_received - (float) $invoicedElsewhere);
+
+                    if ((float) $itemData['quantity_invoiced'] > $maximumQuantity) {
+                        throw ValidationException::withMessages([
+                            'items' => ["Invoice quantity for {$poItem->item_name} exceeds the accepted, uninvoiced store quantity."],
+                        ]);
+                    }
+
                     $invoiceItem->update([
                         'quantity_invoiced' => $itemData['quantity_invoiced'],
                         'quantity_accepted' => $itemData['quantity_invoiced'],
                         'unit_price' => $itemData['unit_price'],
-                        'line_total' => $itemData['quantity_invoiced'] * $itemData['unit_price'],
+                        'line_total' => round((float) $itemData['quantity_invoiced'] * (float) $itemData['unit_price'], 2),
                     ]);
                 }
             }
 
-            $supplierInvoice->outstanding_amount = (float) $supplierInvoice->total_amount - (float) $supplierInvoice->paid_amount;
+            $subtotal = (float) $supplierInvoice->items()->sum('line_total');
+            [, $total] = $this->calculateTotals(
+                [['quantity_invoiced' => 1, 'unit_price' => $subtotal]],
+                (float) $supplierInvoice->discount_amount,
+                (float) $supplierInvoice->tax_amount,
+            );
+            $supplierInvoice->subtotal = $subtotal;
+            $supplierInvoice->total_amount = $total;
+            $supplierInvoice->outstanding_amount = max(0, $total - (float) $supplierInvoice->paid_amount);
             $supplierInvoice->save();
 
             $this->loadRelations($supplierInvoice);
@@ -201,6 +236,21 @@ class SupplierInvoiceController extends Controller
                 'data' => $supplierInvoice,
             ]);
         });
+    }
+
+    private function calculateTotals(array $items, float $discount, float $tax): array
+    {
+        $subtotal = round(collect($items)->sum(
+            fn (array $item) => (float) $item['quantity_invoiced'] * (float) $item['unit_price']
+        ), 2);
+
+        if ($discount > $subtotal + $tax) {
+            throw ValidationException::withMessages([
+                'discount_amount' => ['Discount cannot exceed the invoice subtotal plus tax.'],
+            ]);
+        }
+
+        return [$subtotal, round($subtotal - $discount + $tax, 2)];
     }
 
     public function submit(SubmitSupplierInvoiceRequest $request, SupplierInvoice $supplierInvoice): JsonResponse

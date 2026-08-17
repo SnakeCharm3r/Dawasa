@@ -16,7 +16,6 @@ class UpdateSupplierQuotationRequest extends FormRequest
         return [
             'quotation_number' => ['nullable', 'string', 'max:50'],
             'valid_until' => ['nullable', 'date', 'after:today'],
-            'total_amount' => ['nullable', 'numeric', 'min:0'],
             'status' => ['nullable', 'in:draft,active,withdrawn,expired'],
             'notes' => ['nullable', 'string'],
         ];

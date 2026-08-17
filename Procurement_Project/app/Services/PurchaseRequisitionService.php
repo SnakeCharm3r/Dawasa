@@ -35,7 +35,7 @@ class PurchaseRequisitionService
                     'quantity' => $item['quantity'],
                     'unit' => $item['unit'],
                     'estimated_unit_price' => $item['estimated_unit_price'] ?? null,
-                    'estimated_total' => $item['estimated_total'],
+                    'estimated_total' => $this->lineTotal($item),
                     'notes' => $item['notes'] ?? null,
                 ]);
             }
@@ -72,7 +72,7 @@ class PurchaseRequisitionService
                         'quantity' => $item['quantity'],
                         'unit' => $item['unit'],
                         'estimated_unit_price' => $item['estimated_unit_price'] ?? null,
-                        'estimated_total' => $item['estimated_total'],
+                        'estimated_total' => $this->lineTotal($item),
                         'notes' => $item['notes'] ?? null,
                     ]);
                 }
@@ -80,6 +80,15 @@ class PurchaseRequisitionService
         });
 
         return $requisition->fresh(['items']);
+    }
+
+    private function lineTotal(array $item): float
+    {
+        if (isset($item['estimated_unit_price'])) {
+            return round((float) $item['quantity'] * (float) $item['estimated_unit_price'], 2);
+        }
+
+        return (float) $item['estimated_total'];
     }
 
     public function markQuotationsReady(PurchaseRequisition $requisition): PurchaseRequisition

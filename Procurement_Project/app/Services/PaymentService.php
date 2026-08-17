@@ -26,6 +26,8 @@ class PaymentService
     public function createVoucherFromInvoice(SupplierInvoice $invoice, User $actor, array $data): PaymentVoucher
     {
         return DB::transaction(function () use ($invoice, $actor, $data) {
+            $invoice = SupplierInvoice::lockForUpdate()->findOrFail($invoice->id);
+
             if (! in_array($invoice->status, [
                 SupplierInvoice::STATUS_MATCHED,
                 SupplierInvoice::STATUS_APPROVED_FOR_PAYMENT,
@@ -33,8 +35,8 @@ class PaymentService
                 throw new \RuntimeException('Payment voucher can only be created from matched or approved invoices.');
             }
 
-            if ((float) $data['amount_requested'] > (float) $invoice->outstanding_amount) {
-                throw new \RuntimeException('Requested amount cannot exceed invoice outstanding amount.');
+            if ((float) $data['amount_requested'] > $this->availableVoucherAmount($invoice)) {
+                throw new \RuntimeException('Requested amount cannot exceed the unallocated invoice outstanding amount.');
             }
 
             $voucher = PaymentVoucher::create([
@@ -71,6 +73,26 @@ class PaymentService
                 [],
                 ['status' => PaymentVoucher::STATUS_DRAFT, 'amount_requested' => $voucher->amount_requested]
             );
+
+            return $voucher->fresh();
+        });
+    }
+
+    public function updateVoucher(PaymentVoucher $voucher, array $data): PaymentVoucher
+    {
+        if (! $voucher->isEditable()) {
+            throw new \RuntimeException('Only draft or returned vouchers can be updated.');
+        }
+
+        return DB::transaction(function () use ($voucher, $data) {
+            $invoice = SupplierInvoice::lockForUpdate()->findOrFail($voucher->supplier_invoice_id);
+            $amount = (float) ($data['amount_requested'] ?? $voucher->amount_requested);
+
+            if ($amount > $this->availableVoucherAmount($invoice, $voucher->id)) {
+                throw new \RuntimeException('Requested amount cannot exceed the unallocated invoice outstanding amount.');
+            }
+
+            $voucher->update($data);
 
             return $voucher->fresh();
         });
@@ -231,7 +253,16 @@ class PaymentService
 
         return DB::transaction(function () use ($voucher, $actor, $data, $paymentAmount) {
             $invoice = SupplierInvoice::lockForUpdate()->findOrFail($voucher->supplier_invoice_id);
-            $budget = EntityBudget::lockForUpdate()->findOrFail($invoice->business_entity_id);
+            if ($paymentAmount > (float) $invoice->outstanding_amount) {
+                throw new \RuntimeException('Payment amount cannot exceed the invoice outstanding amount.');
+            }
+
+            $budget = EntityBudget::query()
+                ->lockForUpdate()
+                ->where('business_entity_id', $invoice->business_entity_id)
+                ->where('financial_year_id', $invoice->financial_year_id)
+                ->where('status', EntityBudget::STATUS_APPROVED)
+                ->firstOrFail();
 
             $voucher->payment_date = $data['payment_date'];
             $voucher->payment_reference = $data['payment_reference'];
@@ -269,8 +300,8 @@ class PaymentService
             ]);
 
             $budget->spent_amount += $paymentAmount;
-            $budget->committed_amount -= $paymentAmount;
-            $budget->save();
+            $budget->committed_amount = max(0, (float) $budget->committed_amount - $paymentAmount);
+            $budget->syncAvailable();
 
             ActivityLog::record(
                 $actor,
@@ -290,6 +321,23 @@ class PaymentService
 
             return $voucher->fresh();
         });
+    }
+
+    private function availableVoucherAmount(SupplierInvoice $invoice, ?int $excludingVoucherId = null): float
+    {
+        $reserved = PaymentVoucher::query()
+            ->where('supplier_invoice_id', $invoice->id)
+            ->when($excludingVoucherId, fn ($query) => $query->where('id', '!=', $excludingVoucherId))
+            ->whereIn('status', [
+                PaymentVoucher::STATUS_DRAFT,
+                PaymentVoucher::STATUS_SUBMITTED,
+                PaymentVoucher::STATUS_PENDING_APPROVAL,
+                PaymentVoucher::STATUS_APPROVED,
+                PaymentVoucher::STATUS_RETURNED,
+            ])
+            ->sum('amount_requested');
+
+        return max(0, (float) $invoice->outstanding_amount - (float) $reserved);
     }
 
     public function cancelVoucher(PaymentVoucher $voucher, User $actor, string $reason): PaymentVoucher

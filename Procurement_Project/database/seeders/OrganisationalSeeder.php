@@ -59,5 +59,57 @@ class OrganisationalSeeder extends Seeder
         $superAdmin->save();
 
         $superAdmin->syncRoles(['super_admin']);
+
+        $workflowDepartment = User::query()
+            ->where('email', 'requester@hq.test')
+            ->first()?->department ?? $department;
+
+        $lineManager = $this->seedWorkflowUser([
+            'first_name' => 'Neema',
+            'last_name' => 'Manager',
+            'name' => 'Neema Manager',
+            'email' => 'line_manager@hq.test',
+            'job_title' => 'Line Manager',
+            'is_line_manager' => true,
+        ], $workflowDepartment, 'line_manager');
+
+        $this->seedWorkflowUser([
+            'first_name' => 'Juma',
+            'last_name' => 'Storekeeper',
+            'name' => 'Juma Storekeeper',
+            'email' => 'storekeeper@hq.test',
+            'job_title' => 'Storekeeper',
+            'is_line_manager' => false,
+            'line_manager_id' => $lineManager->id,
+        ], $workflowDepartment, 'storekeeper');
+
+        $this->seedWorkflowUser([
+            'first_name' => 'Asha',
+            'last_name' => 'Receiving',
+            'name' => 'Asha Receiving',
+            'email' => 'receiving@hq.test',
+            'job_title' => 'Receiving Officer',
+            'is_line_manager' => false,
+            'line_manager_id' => $lineManager->id,
+        ], $workflowDepartment, 'receiving_officer');
+    }
+
+    private function seedWorkflowUser(array $attributes, Department $department, string $role): User
+    {
+        $user = User::firstOrNew(['email' => $attributes['email']]);
+        $user->fill([
+            ...$attributes,
+            'department_id' => $department->id,
+            'is_active' => true,
+        ]);
+
+        if (! $user->exists) {
+            $user->password = Hash::make('password');
+        }
+
+        $user->save();
+        $user->syncRoles([$role]);
+
+        return $user;
     }
 }

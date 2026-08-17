@@ -24,7 +24,7 @@ class StoreSupplierQuotationRequest extends FormRequest
             'items.*.item_name' => ['required', 'string', 'max:255'],
             'items.*.specification' => ['nullable', 'string'],
             'items.*.quantity' => ['required', 'numeric', 'gt:0'],
-            'items.*.unit' => ['required', 'string', 'max:50'],
+            'items.*.unit' => ['required', 'string', 'max:50', 'not_regex:/^\s*\d+(?:[.,]\d+)?\s*$/'],
             'items.*.unit_price' => ['required', 'numeric', 'gte:0'],
             'items.*.notes' => ['nullable', 'string'],
         ];

@@ -39,6 +39,8 @@ class PurchaseRequisitionResource extends JsonResource
             'returned_at' => $this->returned_at?->toDateTimeString(),
             'rejected_at' => $this->rejected_at?->toDateTimeString(),
             'cancelled_at' => $this->cancelled_at?->toDateTimeString(),
+            'created_at' => $this->created_at?->toDateTimeString(),
+            'updated_at' => $this->updated_at?->toDateTimeString(),
             'items' => $this->items->map(function ($item) use ($canSeeFinancials) {
                 $data = [
                     'id' => $item->id,
@@ -82,6 +84,19 @@ class PurchaseRequisitionResource extends JsonResource
                     ],
                 ];
             }),
+            'activity_logs' => $this->whenLoaded('activityLogs', fn () => $this->activityLogs->map(function ($log) {
+                return [
+                    'id' => $log->id,
+                    'action' => $log->action,
+                    'old_values' => $log->old_values,
+                    'new_values' => $log->new_values,
+                    'created_at' => $log->created_at?->toDateTimeString(),
+                    'actor' => [
+                        'id' => $log->actor?->id,
+                        'name' => $log->actor?->name,
+                    ],
+                ];
+            })),
         ];
 
         if ($canSeeFinancials) {

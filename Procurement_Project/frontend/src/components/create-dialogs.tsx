@@ -46,12 +46,35 @@ export function SupplierDialog({ open, close, completed }: DialogProps) {
 type RequisitionItem = { item_name: string; specification: string; quantity: string; unit: string; estimated_unit_price: string; notes: string };
 const emptyItem = (): RequisitionItem => ({ item_name: "", specification: "", quantity: "1", unit: "", estimated_unit_price: "", notes: "" });
 
-export function RequisitionDialog({ open, close, completed }: DialogProps) {
+type RequisitionDialogProps = DialogProps & { requisition?: JsonRecord | null };
+
+export function RequisitionDialog({ open, close, completed, requisition }: RequisitionDialogProps) {
   const { user } = useAuth();
   const [items, setItems] = useState<RequisitionItem[]>([emptyItem()]);
+  const [requiredDate, setRequiredDate] = useState("");
+  const [purpose, setPurpose] = useState("");
+  const [estimateNote, setEstimateNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const total = useMemo(() => items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.estimated_unit_price || 0), 0), [items]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const existingItems = (requisition?.items as JsonRecord[] | undefined) ?? [];
+    setItems(existingItems.length > 0 ? existingItems.map((item) => ({
+      item_name: String(item.item_name ?? ""),
+      specification: String(item.specification ?? ""),
+      quantity: String(item.quantity ?? "1"),
+      unit: String(item.unit ?? ""),
+      estimated_unit_price: String(item.estimated_unit_price ?? ""),
+      notes: String(item.notes ?? ""),
+    })) : [emptyItem()]);
+    setRequiredDate(String(requisition?.required_date ?? ""));
+    setPurpose(String(requisition?.purpose ?? ""));
+    setEstimateNote(String(requisition?.estimate_difference_reason ?? ""));
+    setError("");
+  }, [open, requisition]);
 
   function updateItem(index: number, key: keyof RequisitionItem, value: string) {
     setItems((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, [key]: value } : item));
@@ -65,23 +88,23 @@ export function RequisitionDialog({ open, close, completed }: DialogProps) {
     }
     setSubmitting(true);
     setError("");
-    const form = new FormData(event.currentTarget);
+    const requisitionEntity = requisition?.business_entity as JsonRecord | undefined;
+    const requisitionDepartment = requisition?.department as JsonRecord | undefined;
     const payload = {
-      business_entity_id: user.department.business_entity.id,
-      department_id: user.department.id,
-      required_date: form.get("required_date"),
-      purpose: form.get("purpose"),
+      business_entity_id: Number(requisitionEntity?.id ?? user.department.business_entity.id),
+      department_id: Number(requisitionDepartment?.id ?? user.department.id),
+      required_date: requiredDate,
+      purpose,
       estimated_amount: total,
       items: items.map((item) => ({ ...item, quantity: Number(item.quantity), estimated_unit_price: Number(item.estimated_unit_price), estimated_total: Number(item.quantity) * Number(item.estimated_unit_price) })),
-      estimate_difference_reason: form.get("estimate_difference_reason") || null,
+      estimate_difference_reason: estimateNote || null,
     };
     try {
-      await api("admin/purchase-requisitions", { method: "POST", body: JSON.stringify(payload) });
-      completed("Requisition draft created successfully.");
+      await api(requisition ? `admin/purchase-requisitions/${Number(requisition.id)}` : "admin/purchase-requisitions", { method: requisition ? "PATCH" : "POST", body: JSON.stringify(payload) });
+      completed(requisition ? "Requisition draft updated successfully." : "Requisition draft created successfully.");
       close();
-      setItems([emptyItem()]);
     } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : "Unable to create requisition.");
+      setError(caught instanceof ApiError ? caught.message : `Unable to ${requisition ? "update" : "create"} requisition.`);
     } finally {
       setSubmitting(false);
     }
@@ -89,17 +112,17 @@ export function RequisitionDialog({ open, close, completed }: DialogProps) {
 
   if (!open) return null;
   return (
-    <Modal title="New purchase requisition" subtitle={`${user?.department?.name ?? "Department"} · ${user?.department?.business_entity?.name ?? "Business entity"}`} close={close} large>
+    <Modal title={requisition ? "Edit purchase requisition" : "New purchase requisition"} subtitle={`${user?.department?.name ?? "Department"} · ${user?.department?.business_entity?.name ?? "Business entity"}`} close={close} large>
       <form onSubmit={submit} className="dialog-form">
         {error && <div className="form-alert">{error}</div>}
-        <div className="form-grid"><label className="field"><span>Required date</span><input name="required_date" type="date" min={new Date().toISOString().slice(0, 10)} required /></label><label className="field wide"><span>Business purpose</span><textarea name="purpose" rows={3} required placeholder="Describe why this purchase is required" /></label></div>
+        <div className="form-grid"><label className="field"><span>Required date</span><input name="required_date" type="date" min={new Date().toISOString().slice(0, 10)} value={requiredDate} onChange={(event) => setRequiredDate(event.target.value)} required /></label><label className="field wide"><span>Business purpose</span><textarea name="purpose" rows={3} value={purpose} onChange={(event) => setPurpose(event.target.value)} required placeholder="Describe why this purchase is required" /></label></div>
         <div className="line-items-heading"><div><h3>Requested items</h3><p>Quantities and estimates establish the initial budget commitment.</p></div><button type="button" className="secondary-button compact" onClick={() => setItems((current) => [...current, emptyItem()])}><Plus size={15} />Add line</button></div>
         <div className="line-items">
-          {items.map((item, index) => <div className="line-item" key={index}><div className="line-number">{index + 1}</div><div className="form-grid item-grid"><label className="field"><span>Item</span><input value={item.item_name} onChange={(event) => updateItem(index, "item_name", event.target.value)} required /></label><label className="field"><span>Specification</span><input value={item.specification} onChange={(event) => updateItem(index, "specification", event.target.value)} /></label><label className="field"><span>Quantity</span><input type="number" min="0.01" step="0.01" value={item.quantity} onChange={(event) => updateItem(index, "quantity", event.target.value)} required /></label><label className="field"><span>Unit</span><input value={item.unit} onChange={(event) => updateItem(index, "unit", event.target.value)} required placeholder="Each, box, kg" /></label><label className="field"><span>Estimated unit price</span><input type="number" min="0" step="0.01" value={item.estimated_unit_price} onChange={(event) => updateItem(index, "estimated_unit_price", event.target.value)} required /></label><div className="line-total"><span>Line total</span><strong>TZS {(Number(item.quantity || 0) * Number(item.estimated_unit_price || 0)).toLocaleString()}</strong></div></div>{items.length > 1 && <button type="button" className="icon-button danger" onClick={() => setItems((current) => current.filter((_, itemIndex) => itemIndex !== index))} title="Remove line"><Trash2 size={17} /></button>}</div>)}
+          {items.map((item, index) => <div className="line-item" key={index}><div className="line-number">{index + 1}</div><div className="form-grid item-grid requisition-item-grid"><label className="field"><span>Product</span><input value={item.item_name} onChange={(event) => updateItem(index, "item_name", event.target.value)} required /></label><label className="field"><span>Product description</span><input value={item.specification} onChange={(event) => updateItem(index, "specification", event.target.value)} /></label><label className="field"><span>Quantity</span><input type="number" min="0.01" step="0.01" inputMode="decimal" value={item.quantity} onChange={(event) => updateItem(index, "quantity", event.target.value)} required /></label><label className="field"><span>Unit of measure</span><input value={item.unit} onChange={(event) => updateItem(index, "unit", event.target.value)} required placeholder="Carton, each, kg" pattern=".*[^0-9.,\s].*" title="Enter a unit such as carton, each, box, or kg" /></label><label className="field"><span>Unit price (TZS)</span><input type="number" min="0" step="0.01" inputMode="decimal" value={item.estimated_unit_price} onChange={(event) => updateItem(index, "estimated_unit_price", event.target.value)} required placeholder="0.00" /></label><label className="field"><span>Product note <small>Optional</small></span><input value={item.notes} onChange={(event) => updateItem(index, "notes", event.target.value)} /></label><div className="line-total"><span>Line total</span><strong>TZS {(Number(item.quantity || 0) * Number(item.estimated_unit_price || 0)).toLocaleString()}</strong></div></div>{items.length > 1 && <button type="button" className="icon-button danger" onClick={() => setItems((current) => current.filter((_, itemIndex) => itemIndex !== index))} title="Remove line"><Trash2 size={17} /></button>}</div>)}
         </div>
-        <label className="field"><span>Estimate note <small>Optional</small></span><textarea name="estimate_difference_reason" rows={2} placeholder="Add context about the estimate where useful" /></label>
+        <label className="field"><span>Estimate note <small>Optional</small></span><textarea name="estimate_difference_reason" rows={2} value={estimateNote} onChange={(event) => setEstimateNote(event.target.value)} placeholder="Add context about the estimate where useful" /></label>
         <div className="requisition-total"><span>Estimated requisition total</span><strong>TZS {total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
-        <div className="dialog-actions"><button type="button" className="secondary-button" onClick={close}>Cancel</button><button className="primary-button" disabled={submitting || total <= 0}>{submitting && <LoaderCircle className="spin" size={16} />}Save draft</button></div>
+        <div className="dialog-actions"><button type="button" className="secondary-button" onClick={close}>Cancel</button><button className="primary-button" disabled={submitting || total <= 0}>{submitting && <LoaderCircle className="spin" size={16} />}{requisition ? "Update draft" : "Save draft"}</button></div>
       </form>
     </Modal>
   );
@@ -170,7 +193,7 @@ export function ProformaDialog({ open, close, completed }: DialogProps) {
           <Field label="Valid until" name="valid_until" type="date" />
         </div>
         <div className="line-items-heading"><div><h3>Proforma items</h3><p>The total is calculated from the supplier&apos;s offered quantities and prices.</p></div><button type="button" className="secondary-button compact" onClick={() => setItems((current) => [...current, emptyProformaItem()])}><Plus size={15} />Add line</button></div>
-        <div className="line-items">{items.map((item, index) => <div className="line-item" key={index}><div className="line-number">{index + 1}</div><div className="form-grid item-grid"><label className="field"><span>Item</span><input value={item.item_name} onChange={(event) => updateItem(index, "item_name", event.target.value)} required /></label><label className="field"><span>Specification</span><input value={item.specification} onChange={(event) => updateItem(index, "specification", event.target.value)} /></label><label className="field"><span>Quantity</span><input type="number" min="0.01" step="0.01" value={item.quantity} onChange={(event) => updateItem(index, "quantity", event.target.value)} required /></label><label className="field"><span>Unit</span><input value={item.unit} onChange={(event) => updateItem(index, "unit", event.target.value)} required /></label><label className="field"><span>Unit price</span><input type="number" min="0" step="0.01" value={item.unit_price} onChange={(event) => updateItem(index, "unit_price", event.target.value)} required /></label><div className="line-total"><span>Line total</span><strong>TZS {(Number(item.quantity || 0) * Number(item.unit_price || 0)).toLocaleString()}</strong></div></div>{items.length > 1 && <button type="button" className="icon-button danger" onClick={() => setItems((current) => current.filter((_, itemIndex) => itemIndex !== index))} title="Remove line"><Trash2 size={17} /></button>}</div>)}</div>
+        <div className="line-items">{items.map((item, index) => <div className="line-item" key={index}><div className="line-number">{index + 1}</div><div className="form-grid item-grid proforma-item-grid"><label className="field"><span>Product</span><input value={item.item_name} onChange={(event) => updateItem(index, "item_name", event.target.value)} required /></label><label className="field"><span>Product description</span><input value={item.specification} onChange={(event) => updateItem(index, "specification", event.target.value)} /></label><label className="field"><span>Quantity</span><input type="number" min="0.01" step="0.01" inputMode="decimal" value={item.quantity} onChange={(event) => updateItem(index, "quantity", event.target.value)} required /></label><label className="field"><span>Unit of measure</span><input value={item.unit} onChange={(event) => updateItem(index, "unit", event.target.value)} required placeholder="Each, box, kg" pattern=".*[^0-9.,\s].*" title="Enter a unit such as each, box, carton, or kg" /></label><label className="field"><span>Unit price (TZS)</span><input type="number" min="0" step="0.01" inputMode="decimal" value={item.unit_price} onChange={(event) => updateItem(index, "unit_price", event.target.value)} required placeholder="0.00" /></label><div className="line-total"><span>Line total</span><strong>TZS {(Number(item.quantity || 0) * Number(item.unit_price || 0)).toLocaleString()}</strong></div></div>{items.length > 1 && <button type="button" className="icon-button danger" onClick={() => setItems((current) => current.filter((_, itemIndex) => itemIndex !== index))} title="Remove line"><Trash2 size={17} /></button>}</div>)}</div>
         <label className="field"><span>Supplier notes</span><textarea name="notes" rows={2} /></label>
         <div className="requisition-total"><span>Proforma total</span><strong>TZS {total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
         <div className="dialog-actions"><button type="button" className="secondary-button" onClick={close}>Cancel</button><button className="primary-button" disabled={submitting || total <= 0 || requisitions.length === 0}>{submitting && <LoaderCircle className="spin" size={16} />}Save proforma</button></div>

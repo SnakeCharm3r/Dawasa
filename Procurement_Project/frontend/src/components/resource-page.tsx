@@ -3,6 +3,7 @@
 import { InvoiceDialog, ProformaDialog, ReceiptDialog, RequisitionDialog, SupplierDialog } from "@/components/create-dialogs";
 import { useAuth } from "@/components/auth-provider";
 import { PaymentVoucherModal } from "@/components/payment-voucher-modal";
+import { RequisitionWorkspaceModal } from "@/components/requisition-workspace-modal";
 import { api, ApiError, collectionFrom, valueAt } from "@/lib/api";
 import { modules, type ActionSpec, type Column, type ModuleConfig } from "@/lib/modules";
 import type { JsonRecord, Pagination } from "@/lib/types";
@@ -23,6 +24,7 @@ export function ResourcePage({ moduleKey }: { moduleKey: string }) {
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<JsonRecord | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [editRequisition, setEditRequisition] = useState<JsonRecord | null>(null);
   const [pendingAction, setPendingAction] = useState<{ action: ActionSpec; item: JsonRecord } | null>(null);
 
   const load = useCallback(async () => {
@@ -87,13 +89,14 @@ export function ResourcePage({ moduleKey }: { moduleKey: string }) {
         <footer className="table-footer"><span>{pagination.total !== undefined ? `${pagination.total.toLocaleString()} records` : `${rows.length} records`}</span><div className="pagination"><button className="icon-button bordered" disabled={page <= 1 || loading} onClick={() => setPage((value) => value - 1)} title="Previous page"><ChevronLeft size={17} /></button><span>Page {pagination.current_page ?? page}{pagination.last_page ? ` of ${pagination.last_page}` : ""}</span><button className="icon-button bordered" disabled={loading || (pagination.last_page !== undefined && page >= pagination.last_page)} onClick={() => setPage((value) => value + 1)} title="Next page"><ChevronRight size={17} /></button></div></footer>
       </section>
       {selected && moduleKey === "payments" && <PaymentVoucherModal item={selected} actions={config.actions ?? []} close={() => setSelected(null)} act={(action, item) => { setSelected(null); setPendingAction({ action, item }); }} />}
-      {selected && moduleKey !== "payments" && <DetailDrawer item={selected} config={config} close={() => setSelected(null)} act={(action) => setPendingAction({ action, item: selected })} />}
+      {selected && moduleKey === "requisitions" && <RequisitionWorkspaceModal item={selected} actions={config.actions ?? []} close={() => setSelected(null)} edit={(item) => { setSelected(null); setEditRequisition(item); }} act={(action, item) => { setSelected(null); setPendingAction({ action, item }); }} />}
+      {selected && !["payments", "requisitions"].includes(moduleKey) && <DetailDrawer item={selected} config={config} close={() => setSelected(null)} act={(action) => setPendingAction({ action, item: selected })} />}
       {pendingAction && <ActionDialog state={pendingAction} close={() => setPendingAction(null)} completed={(message) => { setPendingAction(null); setSelected(null); completed(message); }} />}
       {config.create === "supplier" && <SupplierDialog open={createOpen} close={() => setCreateOpen(false)} completed={completed} />}
       {config.create === "proforma" && <ProformaDialog open={createOpen} close={() => setCreateOpen(false)} completed={completed} />}
       {config.create === "receipt" && <ReceiptDialog open={createOpen} close={() => setCreateOpen(false)} completed={completed} />}
       {config.create === "invoice" && <InvoiceDialog open={createOpen} close={() => setCreateOpen(false)} completed={completed} />}
-      {config.create === "requisition" && <RequisitionDialog open={createOpen} close={() => setCreateOpen(false)} completed={completed} />}
+      {config.create === "requisition" && <RequisitionDialog open={createOpen || editRequisition !== null} requisition={editRequisition} close={() => { setCreateOpen(false); setEditRequisition(null); }} completed={(message) => { setEditRequisition(null); completed(message); }} />}
     </div>
   );
 }

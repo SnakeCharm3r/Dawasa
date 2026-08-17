@@ -99,7 +99,7 @@ class PurchaseRequisitionController extends Controller
     {
         $this->authorize('view', $purchaseRequisition);
 
-        $purchaseRequisition->load(['businessEntity', 'department', 'requester', 'lineManager', 'items', 'attachments', 'approvals.actor']);
+        $purchaseRequisition->load(['businessEntity', 'department', 'requester', 'lineManager', 'items', 'attachments', 'approvals.actor', 'activityLogs.actor']);
 
         return response()->json(new PurchaseRequisitionResource($purchaseRequisition));
     }
