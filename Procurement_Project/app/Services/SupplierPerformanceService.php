@@ -8,6 +8,7 @@ use App\Models\Supplier;
 use App\Models\SupplierPerformanceEvaluation;
 use App\Models\SupplierPerformanceIncident;
 use App\Models\User;
+use Carbon\Carbon;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
 
@@ -71,6 +72,7 @@ class SupplierPerformanceService
             $businessEntityId = $incident->purchaseOrder?->business_entity_id;
             $this->calculate($supplier, $businessEntityId, $actor);
         }
+
         return $incident;
     }
 
@@ -91,7 +93,8 @@ class SupplierPerformanceService
             if (! $completion) {
                 return 50;
             }
-            $daysLate = max(0, $order->expected_delivery_date->diffInDays($completion, false));
+            $daysLate = max(0, (int) ceil($order->expected_delivery_date->copy()->startOfDay()->diffInDays(Carbon::parse($completion)->startOfDay(), false)));
+
             return max(0, 100 - ($daysLate * 5));
         }), 2);
     }
@@ -108,6 +111,7 @@ class SupplierPerformanceService
         $score = (float) $totals->received > 0 ? ((float) $totals->accepted / (float) $totals->received) * 100 : 100;
         $penalty = $incidents->whereIn('incident_type', ['quality_failure', 'damaged_goods', 'rejected_goods', 'complaint'])
             ->sum(fn ($incident) => ['low' => 2, 'medium' => 5, 'high' => 12, 'critical' => 25][$incident->severity] ?? 0);
+
         return round(max(0, $score - $penalty), 2);
     }
 
@@ -125,12 +129,14 @@ class SupplierPerformanceService
         if ($invitations->isEmpty()) {
             return 100;
         }
+
         return round($invitations->avg(function ($invitation) {
             if (! $invitation->submitted_at || $invitation->submitted_at > $invitation->submission_deadline) {
                 return 0;
             }
-            $window = max(1, now()->parse($invitation->invited_at)->diffInMinutes(now()->parse($invitation->submission_deadline)));
-            $used = now()->parse($invitation->invited_at)->diffInMinutes(now()->parse($invitation->submitted_at));
+            $window = max(1, Carbon::parse($invitation->invited_at)->diffInMinutes(Carbon::parse($invitation->submission_deadline)));
+            $used = Carbon::parse($invitation->invited_at)->diffInMinutes(Carbon::parse($invitation->submitted_at));
+
             return max(60, 100 - (($used / $window) * 40));
         }), 2);
     }
@@ -141,6 +147,7 @@ class SupplierPerformanceService
             ->whereIn('match_status', ['quantity_variance', 'price_variance', 'failed'])->count();
         $incidentPenalty = $incidents->whereIn('incident_type', ['invoice_variance', 'cancelled_po', 'complaint', 'other'])
             ->sum(fn ($incident) => ['low' => 2, 'medium' => 5, 'high' => 12, 'critical' => 25][$incident->severity] ?? 0);
+
         return round(max(0, 100 - ($varianceCount * 8) - ($orders->where('status', PurchaseOrder::STATUS_CANCELLED)->count() * 15) - $incidentPenalty), 2);
     }
 

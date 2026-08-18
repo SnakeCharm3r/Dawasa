@@ -2,7 +2,6 @@
 
 namespace Database\Seeders;
 
-use Database\Seeders\OrganisationalSeeder;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
@@ -17,6 +16,7 @@ class DatabaseSeeder extends Seeder
     {
         $this->call([
             OrganisationalSeeder::class,
+            CurrentSupplierKycSeeder::class,
         ]);
     }
 }

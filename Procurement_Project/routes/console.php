@@ -1,10 +1,10 @@
 <?php
 
+use App\Models\Supplier;
+use App\Services\SupplierPerformanceService;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
-use App\Models\Supplier;
-use App\Services\SupplierPerformanceService;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
@@ -16,6 +16,7 @@ Artisan::command('suppliers:calculate-performance', function () {
         $entityIds = $supplier->purchaseOrders()->distinct()->pluck('business_entity_id');
         if ($entityIds->isEmpty()) {
             $service->calculate($supplier);
+
             return;
         }
         $entityIds->each(fn ($entityId) => $service->calculate($supplier, (int) $entityId));

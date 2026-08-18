@@ -5,8 +5,8 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreSupplierRequest;
 use App\Http\Requests\UpdateSupplierRequest;
-use App\Models\Supplier;
 use App\Models\ActivityLog;
+use App\Models\Supplier;
 use App\Services\SupplierComplianceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -113,23 +113,43 @@ class SupplierController extends Controller
         ]);
     }
 
-    public function activate(Supplier $supplier): JsonResponse
+    public function activate(Request $request, Supplier $supplier): JsonResponse
     {
         $this->authorize('update', $supplier);
-
-        $supplier->update(['is_active' => true]);
+        abort_unless($request->user()->hasAnyRole(['super_admin', 'procurement_officer', 'gm', 'ceo']), 403);
+        $data = $request->validate(['reason' => ['required', 'string', 'max:2000']]);
+        $assessment = $this->compliance->assess($supplier, false);
+        $old = $supplier->only(['is_active', 'portal_status']);
+        $supplier->update(['is_active' => true, 'portal_status' => 'approved', 'review_comments' => $data['reason'], 'status_changed_by' => $request->user()->id, 'status_changed_at' => now()]);
+        $override = $this->compliance->hasKycGaps($assessment)
+            ? $this->compliance->grantKycEligibilityOverride($supplier, $request->user(), $data['reason'])
+            : null;
+        $this->compliance->assess($supplier);
+        ActivityLog::record($request->user(), 'supplier.reactivated', $supplier, $old, [
+            'is_active' => true,
+            'portal_status' => 'approved',
+            'award_eligibility' => $supplier->award_eligibility,
+            'kyc_override_expires_at' => $override?->expires_at,
+            'reason' => $data['reason'],
+        ]);
 
         return response()->json([
-            'message' => 'Supplier activated successfully.',
+            'message' => $override
+                ? 'Supplier verified and activated with a 90-day incomplete-KYC eligibility override.'
+                : 'Supplier verified and activated successfully.',
             'data' => $supplier->fresh(),
         ]);
     }
 
-    public function deactivate(Supplier $supplier): JsonResponse
+    public function deactivate(Request $request, Supplier $supplier): JsonResponse
     {
         $this->authorize('update', $supplier);
-
-        $supplier->update(['is_active' => false]);
+        abort_unless($request->user()->hasAnyRole(['super_admin', 'gm', 'ceo']), 403);
+        $data = $request->validate(['reason' => ['required', 'string', 'max:2000']]);
+        $old = $supplier->only(['is_active', 'portal_status']);
+        $supplier->update(['is_active' => false, 'portal_status' => 'suspended', 'review_comments' => $data['reason'], 'status_changed_by' => $request->user()->id, 'status_changed_at' => now()]);
+        $this->compliance->assess($supplier);
+        ActivityLog::record($request->user(), 'supplier.suspended', $supplier, $old, ['is_active' => false, 'portal_status' => 'suspended', 'reason' => $data['reason']]);
 
         return response()->json([
             'message' => 'Supplier deactivated successfully.',
@@ -156,6 +176,7 @@ class SupplierController extends Controller
         $data['contact_position'] = $data['primary_contact_position'] ?? $data['contact_position'] ?? null;
         $data['alternate_phone'] = $data['alternate_contact_phone'] ?? $data['alternate_phone'] ?? null;
         $data['country'] ??= 'Tanzania';
+
         return $data;
     }
 }

@@ -4,6 +4,8 @@ namespace App\Services;
 
 use App\Models\Supplier;
 use App\Models\SupplierDocument;
+use App\Models\SupplierPerformanceOverride;
+use App\Models\User;
 
 class SupplierComplianceService
 {
@@ -39,6 +41,7 @@ class SupplierComplianceService
             if ($persist) {
                 $supplier->forceFill(['compliance_status' => 'complete', 'award_eligibility' => 'eligible', 'restriction_reason' => null])->saveQuietly();
             }
+
             return $legacy;
         }
 
@@ -62,6 +65,7 @@ class SupplierComplianceService
             $documents = $supplier->documents->filter(fn (SupplierDocument $document) => in_array($document->document_type, self::DOCUMENT_ALIASES[$type] ?? [$type], true));
             if ($documents->isEmpty()) {
                 $missing[] = $type;
+
                 continue;
             }
 
@@ -72,16 +76,19 @@ class SupplierComplianceService
                 } else {
                     $missing[] = $type;
                 }
+
                 continue;
             }
 
             $usable = $verified->first(function (SupplierDocument $document) {
                 $expiry = $document->expiry_date ?? $document->expires_at;
+
                 return ! $expiry || $expiry->endOfDay()->isFuture();
             });
 
             if (! $usable) {
                 $expired[] = $type;
+
                 continue;
             }
 
@@ -110,7 +117,9 @@ class SupplierComplianceService
             $reason = 'Mandatory supplier compliance evidence is incomplete.';
         }
 
-        $override = $supplier->performanceOverrides()->where('expires_at', '>', now())->latest()->first();
+        $override = $supplier->portal_status === 'approved' && $supplier->is_active
+            ? $supplier->performanceOverrides()->where('expires_at', '>', now())->latest()->first()
+            : null;
         if ($override) {
             $eligibility = $override->eligibility;
             $reason = $override->reason;
@@ -144,6 +153,21 @@ class SupplierComplianceService
     public function canParticipate(Supplier $supplier): bool
     {
         return $this->assess($supplier)['award_eligibility'] === 'eligible';
+    }
+
+    public function hasKycGaps(array $assessment): bool
+    {
+        return (bool) ($assessment['missing_documents'] || $assessment['expired_documents'] || $assessment['rejected_documents']);
+    }
+
+    public function grantKycEligibilityOverride(Supplier $supplier, User $actor, string $reason, int $days = 90): SupplierPerformanceOverride
+    {
+        return $supplier->performanceOverrides()->create([
+            'eligibility' => 'eligible',
+            'reason' => 'Incomplete KYC activation: '.$reason,
+            'expires_at' => now()->addDays($days),
+            'created_by' => $actor->id,
+        ]);
     }
 
     private function verificationStatus(SupplierDocument $document): string

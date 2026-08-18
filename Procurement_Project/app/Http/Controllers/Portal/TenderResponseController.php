@@ -7,7 +7,6 @@ use App\Models\ActivityLog;
 use App\Models\Tender;
 use App\Models\TenderResponse;
 use App\Models\TenderResponseDocument;
-use App\Services\SupplierComplianceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -15,17 +14,17 @@ use Illuminate\Support\Facades\Storage;
 
 class TenderResponseController extends Controller
 {
-    public function __construct(private readonly SupplierComplianceService $compliance) {}
-
     public function index(Request $request): JsonResponse
     {
         $supplier = $this->supplier($request);
+
         return response()->json(['data' => $supplier->tenderResponses()->with('tender:id,tender_number,title,submission_deadline,status')->latest()->paginate(15)]);
     }
 
     public function show(Request $request, TenderResponse $tenderResponse): JsonResponse
     {
         $this->owns($request, $tenderResponse);
+
         return response()->json(['data' => $tenderResponse->load(['tender.items', 'items.tenderItem', 'documents'])]);
     }
 
@@ -42,6 +41,7 @@ class TenderResponseController extends Controller
             $items = collect($data['items']);
             $subtotal = $items->sum(function ($item) use ($tender) {
                 $quantity = (float) $tender->items->firstWhere('id', $item['tender_item_id'])->quantity;
+
                 return $quantity * (float) $item['unit_price'];
             });
             $attributes = [
@@ -57,10 +57,13 @@ class TenderResponseController extends Controller
             }
             $response->items()->createMany($items->map(function ($item) use ($tender) {
                 $quantity = (float) $tender->items->firstWhere('id', $item['tender_item_id'])->quantity;
+
                 return [...$item, 'line_total' => $quantity * (float) $item['unit_price']];
             })->all());
+
             return $response;
         });
+
         return response()->json(['message' => 'Tender response saved as draft.', 'data' => $response->load('items')], 201);
     }
 
@@ -77,6 +80,7 @@ class TenderResponseController extends Controller
             $tenderResponse->items()->delete();
             $tenderResponse->items()->createMany($items->map(fn ($item) => [...$item, 'line_total' => (float) $tenderResponse->tender->items->firstWhere('id', $item['tender_item_id'])->quantity * (float) $item['unit_price']])->all());
         });
+
         return response()->json(['message' => 'Draft response updated.', 'data' => $tenderResponse->fresh('items')]);
     }
 
@@ -90,8 +94,10 @@ class TenderResponseController extends Controller
             $number = sprintf('BID-%d-%05d', now()->year, TenderResponse::whereYear('created_at', now()->year)->lockForUpdate()->count() + 1);
             $tenderResponse->update(['status' => 'submitted', 'receipt_number' => $number, 'submitted_at' => now()]);
             ActivityLog::record($request->user(), 'tender_response.submitted', $tenderResponse, ['status' => 'draft'], ['status' => 'submitted', 'receipt_number' => $number]);
+
             return $number;
         });
+
         return response()->json(['message' => 'Quotation submitted and locked.', 'data' => ['receipt_number' => $receipt, 'submitted_at' => $tenderResponse->fresh()->submitted_at]]);
     }
 
@@ -110,12 +116,14 @@ class TenderResponseController extends Controller
             'storage_path' => $file->store('tender-responses/'.$tenderResponse->id, 'local'),
             'mime_type' => $file->getMimeType(), 'size' => $file->getSize(),
         ]);
+
         return response()->json(['message' => 'Response document uploaded securely.', 'data' => $document], 201);
     }
 
     public function downloadDocument(Request $request, TenderResponseDocument $document)
     {
         $this->owns($request, $document->response);
+
         return Storage::disk('local')->download($document->storage_path, $document->original_name);
     }
 
@@ -134,17 +142,26 @@ class TenderResponseController extends Controller
         $expected = $tender->items->pluck('id')->sort()->values()->all();
         $actual = collect($data['items'])->pluck('tender_item_id')->sort()->values()->all();
         abort_unless($expected === $actual, 422, 'Pricing must be supplied for every tender item and no other items.');
+
         return $data;
     }
 
-    private function supplier(Request $request) { abort_unless($request->user()->hasRole('supplier'), 403); return $request->user()->supplier()->firstOrFail(); }
-    private function owns(Request $request, TenderResponse $response): void { abort_unless($response->supplier_id === $this->supplier($request)->id, 403); }
+    private function supplier(Request $request)
+    {
+        abort_unless($request->user()->hasRole('supplier'), 403);
+
+        return $request->user()->supplier()->firstOrFail();
+    }
+
+    private function owns(Request $request, TenderResponse $response): void
+    {
+        abort_unless($response->supplier_id === $this->supplier($request)->id, 403);
+    }
+
     private function assertEligible(Tender $tender, $supplier): void
     {
         abort_unless($tender->status === Tender::STATUS_PUBLISHED, 422, 'Tender is not open.');
-        $categoryEligible = $supplier->categories()->whereKey($tender->supplier_category_id)->exists();
         $invited = $tender->invitedSuppliers()->whereKey($supplier->id)->exists();
-        abort_unless(($tender->visibility === 'public' && $categoryEligible) || $invited, 403);
-        abort_unless($this->compliance->canParticipate($supplier), 403, 'Supplier compliance currently prevents tender response or award.');
+        abort_unless($tender->visibility === 'public' || $invited, 403);
     }
 }

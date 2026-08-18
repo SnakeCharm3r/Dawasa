@@ -11,16 +11,22 @@ type DialogProps = { open: boolean; close: () => void; completed: (message: stri
 export function SupplierDialog({ open, close, completed }: DialogProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [categories, setCategories] = useState<JsonRecord[]>([]);
+
+  useEffect(() => {
+    if (open) void api<{ data: JsonRecord[] }>("portal/supplier-categories").then((response) => setCategories(response.data));
+  }, [open]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitting(true);
     setError("");
     const form = new FormData(event.currentTarget);
+    const values = Object.fromEntries(form.entries());
     try {
       await api("admin/suppliers", {
         method: "POST",
-        body: JSON.stringify(Object.fromEntries(form.entries())),
+        body: JSON.stringify({ ...values, vat_registered: form.has("vat_registered"), regulated_supplier: form.has("regulated_supplier"), category_ids: form.getAll("category_ids").map(Number) }),
       });
       completed("Supplier created successfully.");
       close();
@@ -33,10 +39,10 @@ export function SupplierDialog({ open, close, completed }: DialogProps) {
 
   if (!open) return null;
   return (
-    <Modal title="Add supplier" subtitle="Create an approved supplier record for sourcing." close={close}>
+    <Modal title="Add supplier" subtitle="Create a supplier in the same compliance workflow used by portal registration." close={close} large>
       <form onSubmit={submit} className="dialog-form">
         {error && <div className="form-alert">{error}</div>}
-        <div className="form-grid two"><Field label="Supplier name" name="name" required /><Field label="Supplier code" name="code" required /><Field label="Contact person" name="contact_person" /><Field label="Email" name="email" type="email" /><Field label="Phone" name="phone" /><Field label="Tax number" name="tax_number" /><Field label="Registration number" name="registration_number" /><Field label="Address" name="address" wide /></div>
+        <div className="form-grid two"><Field label="Legal name" name="legal_name" required /><Field label="Trading name" name="trading_name" /><Field label="Supplier code" name="code" required /><label className="field"><span>Supplier type</span><select name="supplier_type" required defaultValue="limited_company">{["limited_company", "business_name", "partnership", "sole_proprietor", "ngo", "government_entity", "other"].map((type) => <option key={type} value={type}>{type.replaceAll("_", " ")}</option>)}</select></label><Field label="Registration number" name="registration_number" /><Field label="BRELA number" name="brela_registration_number" /><Field label="TIN number" name="tin_number" required /><Field label="VAT registration number" name="vat_registration_number" /><label className="checkbox-field"><input type="checkbox" name="vat_registered" /><span>VAT registered</span></label><Field label="Business licence number" name="business_license_number" /><Field label="Licence expiry" name="business_license_expiry_date" type="date" /><Field label="Tax clearance number" name="tax_clearance_number" /><Field label="Tax clearance expiry" name="tax_clearance_expiry_date" type="date" /><Field label="Primary contact" name="primary_contact_name" required /><Field label="Position" name="primary_contact_position" /><Field label="Email" name="primary_contact_email" type="email" /><Field label="Phone" name="primary_contact_phone" required /><Field label="Physical office address" name="physical_office_address" required wide /><Field label="District" name="district" /><Field label="Region" name="region" required /><Field label="Country" name="country" defaultValue="Tanzania" /><Field label="Products and services" name="products_services" required wide /><Field label="Delivery coverage" name="delivery_coverage_areas" wide /><fieldset className="category-picker wide"><legend>Approved categories</legend>{categories.map((category) => <label key={String(category.id)}><input type="checkbox" name="category_ids" value={String(category.id)} /><span>{String(category.name)}</span></label>)}</fieldset><label className="checkbox-field wide"><input type="checkbox" name="regulated_supplier" /><span>Regulated goods or services supplier</span></label></div>
         <div className="dialog-actions"><button type="button" className="secondary-button" onClick={close}>Cancel</button><button className="primary-button" disabled={submitting}>{submitting && <LoaderCircle className="spin" size={16} />}Create supplier</button></div>
       </form>
     </Modal>
@@ -156,16 +162,26 @@ export function RequisitionDialog({ open, close, completed, requisition }: Requi
   );
 }
 
-type ProformaItem = { item_name: string; specification: string; quantity: string; unit: string; unit_price: string; notes: string };
-const emptyProformaItem = (): ProformaItem => ({ item_name: "", specification: "", quantity: "1", unit: "", unit_price: "", notes: "" });
+type SupplierOffer = { key: number; supplier_id: string; valid_until: string; notes: string; prices: Record<number, string> };
+const emptySupplierOffer = (key: number): SupplierOffer => ({ key, supplier_id: "", valid_until: "", notes: "", prices: {} });
 
 export function ProformaDialog({ open, close, completed }: DialogProps) {
+  const { user } = useAuth();
   const [requisitions, setRequisitions] = useState<JsonRecord[]>([]);
   const [suppliers, setSuppliers] = useState<JsonRecord[]>([]);
-  const [items, setItems] = useState<ProformaItem[]>([emptyProformaItem()]);
+  const [requisitionId, setRequisitionId] = useState("");
+  const [route, setRoute] = useState<"registered" | "other_suppliers">("registered");
+  const [offers, setOffers] = useState<SupplierOffer[]>([emptySupplierOffer(1)]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const total = useMemo(() => items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unit_price || 0), 0), [items]);
+  const selectedRequisition = useMemo(() => requisitions.find((item) => String(item.id) === requisitionId), [requisitionId, requisitions]);
+  const requestItems = useMemo(() => (selectedRequisition?.items as JsonRecord[] | undefined) ?? [], [selectedRequisition]);
+  const eligibleSuppliers = useMemo(() => {
+    const categoryId = Number((selectedRequisition?.supplier_category as JsonRecord | undefined)?.id ?? 0);
+    if (!categoryId) return [];
+    return suppliers.filter((supplier) => ((supplier.categories as JsonRecord[] | undefined) ?? []).some((category) => Number(category.id) === categoryId));
+  }, [selectedRequisition, suppliers]);
+  const isPublicRequest = route === "other_suppliers";
 
   useEffect(() => {
     if (!open) return;
@@ -178,8 +194,21 @@ export function ProformaDialog({ open, close, completed }: DialogProps) {
     }).catch((caught) => setError(caught instanceof ApiError ? caught.message : "Unable to load proforma options."));
   }, [open]);
 
-  function updateItem(index: number, key: keyof ProformaItem, value: string) {
-    setItems((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, [key]: value } : item));
+  function chooseRequisition(value: string) {
+    setRequisitionId(value);
+    setOffers([emptySupplierOffer(1)]);
+  }
+
+  function updateOffer(key: number, values: Partial<SupplierOffer>) {
+    setOffers((current) => current.map((offer) => offer.key === key ? { ...offer, ...values } : offer));
+  }
+
+  function updatePrice(key: number, itemId: number, value: string) {
+    setOffers((current) => current.map((offer) => offer.key === key ? { ...offer, prices: { ...offer.prices, [itemId]: value } } : offer));
+  }
+
+  function offerTotal(offer: SupplierOffer) {
+    return requestItems.reduce((sum, item) => sum + Number(item.quantity ?? 0) * Number(offer.prices[Number(item.id)] ?? 0), 0);
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -188,19 +217,41 @@ export function ProformaDialog({ open, close, completed }: DialogProps) {
     setError("");
     const form = new FormData(event.currentTarget);
     try {
-      await api("admin/supplier-quotations", {
-        method: "POST",
-        body: JSON.stringify({
-          purchase_requisition_id: Number(form.get("purchase_requisition_id")),
-          supplier_id: Number(form.get("supplier_id")),
-          quotation_number: form.get("quotation_number"),
-          valid_until: form.get("valid_until") || null,
-          notes: form.get("notes") || null,
-          items: items.map((item) => ({ ...item, quantity: Number(item.quantity), unit_price: Number(item.unit_price) })),
-        }),
-      });
-      completed("Supplier proforma created successfully.");
-      setItems([emptyProformaItem()]);
+      if (isPublicRequest) {
+        await api(`admin/purchase-requisitions/${Number(requisitionId)}/other-suppliers-tender`, {
+          method: "POST",
+          body: JSON.stringify({
+            title: form.get("title"),
+            public_summary: form.get("public_summary"),
+            submission_deadline: form.get("submission_deadline"),
+            expected_delivery_date: form.get("expected_delivery_date") || null,
+            delivery_location: form.get("delivery_location") || null,
+            contact_email: form.get("contact_email") || null,
+            contact_phone: form.get("contact_phone") || null,
+            eligibility_requirements: form.get("eligibility_requirements") || null,
+            submission_instructions: form.get("submission_instructions") || null,
+            terms_and_conditions: form.get("terms_and_conditions") || null,
+          }),
+        });
+        completed("Public RFQ sent to the GM for approval. It will appear on the supplier portal only after publication approval.");
+      } else {
+        await api("admin/supplier-quotations/batch", {
+          method: "POST",
+          body: JSON.stringify({
+            purchase_requisition_id: Number(requisitionId),
+            offers: offers.map((offer) => ({
+              supplier_id: Number(offer.supplier_id),
+              valid_until: offer.valid_until || null,
+              notes: offer.notes || null,
+              prices: requestItems.map((item) => ({ purchase_requisition_item_id: Number(item.id), unit_price: Number(offer.prices[Number(item.id)]) })),
+            })),
+          }),
+        });
+        completed(`${offers.length} supplier proforma${offers.length === 1 ? "" : "s"} created from the requisition items.`);
+      }
+      setRequisitionId("");
+      setRoute("registered");
+      setOffers([emptySupplierOffer(1)]);
       close();
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "Unable to create proforma.");
@@ -211,20 +262,22 @@ export function ProformaDialog({ open, close, completed }: DialogProps) {
 
   if (!open) return null;
   return (
-    <Modal title="New supplier proforma" subtitle="Associate the supplier offer with a sourcing-approved requisition." close={close} large>
+    <Modal title="New supplier proforma" subtitle="Use a registered supplier or request quotations from other suppliers through the public portal." close={close} large>
       <form onSubmit={submit} className="dialog-form">
         {error && <div className="form-alert">{error}</div>}
         <div className="form-grid two">
-          <label className="field"><span>Approved requisition</span><select name="purchase_requisition_id" required defaultValue=""><option value="" disabled>Select requisition</option>{requisitions.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(item.requisition_number)} - {String(item.purpose)}</option>)}</select></label>
-          <label className="field"><span>Supplier</span><select name="supplier_id" required defaultValue=""><option value="" disabled>Select supplier</option>{suppliers.map((supplier) => <option key={String(supplier.id)} value={String(supplier.id)}>{String(supplier.name)} ({String(supplier.code)})</option>)}</select></label>
-          <Field label="Proforma number" name="quotation_number" required />
-          <Field label="Valid until" name="valid_until" type="date" />
+          <label className="field"><span>Approved requisition</span><select name="purchase_requisition_id" required value={requisitionId} onChange={(event) => chooseRequisition(event.target.value)}><option value="" disabled>Select requisition</option>{requisitions.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(item.requisition_number)} - {String(item.purpose)}</option>)}</select></label>
+          <label className="field"><span>Sourcing route</span><select value={route} onChange={(event) => setRoute(event.target.value as "registered" | "other_suppliers")}><option value="registered">Price registered suppliers</option><option value="other_suppliers">Other suppliers — publish an RFQ</option></select></label>
         </div>
-        <div className="line-items-heading"><div><h3>Proforma items</h3><p>The total is calculated from the supplier&apos;s offered quantities and prices.</p></div><button type="button" className="secondary-button compact" onClick={() => setItems((current) => [...current, emptyProformaItem()])}><Plus size={15} />Add line</button></div>
-        <div className="line-items">{items.map((item, index) => <div className="line-item" key={index}><div className="line-number">{index + 1}</div><div className="form-grid item-grid proforma-item-grid"><label className="field"><span>Product</span><input value={item.item_name} onChange={(event) => updateItem(index, "item_name", event.target.value)} required /></label><label className="field"><span>Product description</span><input value={item.specification} onChange={(event) => updateItem(index, "specification", event.target.value)} /></label><label className="field"><span>Quantity</span><input type="number" min="0.01" step="0.01" inputMode="decimal" value={item.quantity} onChange={(event) => updateItem(index, "quantity", event.target.value)} required /></label><label className="field"><span>Unit of measure</span><input value={item.unit} onChange={(event) => updateItem(index, "unit", event.target.value)} required placeholder="Each, box, kg" pattern=".*[^0-9.,\s].*" title="Enter a unit such as each, box, carton, or kg" /></label><label className="field"><span>Unit price (TZS)</span><input type="number" min="0" step="0.01" inputMode="decimal" value={item.unit_price} onChange={(event) => updateItem(index, "unit_price", event.target.value)} required placeholder="0.00" /></label><div className="line-total"><span>Line total</span><strong>TZS {(Number(item.quantity || 0) * Number(item.unit_price || 0)).toLocaleString()}</strong></div></div>{items.length > 1 && <button type="button" className="icon-button danger" onClick={() => setItems((current) => current.filter((_, itemIndex) => itemIndex !== index))} title="Remove line"><Trash2 size={17} /></button>}</div>)}</div>
-        <label className="field"><span>Supplier notes</span><textarea name="notes" rows={2} /></label>
-        <div className="requisition-total"><span>Proforma total</span><strong>TZS {total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
-        <div className="dialog-actions"><button type="button" className="secondary-button" onClick={close}>Cancel</button><button className="primary-button" disabled={submitting || total <= 0 || requisitions.length === 0}>{submitting && <LoaderCircle className="spin" size={16} />}Save proforma</button></div>
+        {selectedRequisition && <section className="proforma-request-preview"><header><div><span className="eyebrow">Requisition items</span><h3>{String(selectedRequisition.requisition_number)} — {String(selectedRequisition.purpose)}</h3></div><span>{requestItems.length} requested item{requestItems.length === 1 ? "" : "s"}</span></header><div className="table-wrap"><table><thead><tr><th>#</th><th>Product</th><th>Description / specification</th><th>Quantity</th><th>Unit</th></tr></thead><tbody>{requestItems.map((item, index) => <tr key={String(item.id)}><td>{index + 1}</td><td><strong>{String(item.item_name ?? "Item")}</strong></td><td>{String(item.specification ?? "No description provided")}</td><td>{Number(item.quantity ?? 0).toLocaleString()}</td><td>{String(item.unit ?? "-")}</td></tr>)}</tbody></table></div><p>Internal estimates and budget prices are protected. Only the requested descriptions, quantities, and units are shown.</p></section>}
+        {isPublicRequest ? <>
+          <div className="form-alert info">The requisition items will be copied without internal prices or budget details. The GM must approve publication before suppliers can see this RFQ.</div>
+          <div className="form-grid two"><Field label="Public RFQ title" name="title" required /><label className="field wide"><span>Public summary</span><textarea name="public_summary" rows={3} required placeholder="Describe the requirement without internal budget or approval details." /></label><Field label="Bid submission deadline" name="submission_deadline" type="datetime-local" required /><Field label="Expected delivery date" name="expected_delivery_date" type="date" /><Field label="Delivery location" name="delivery_location" /><Field label="Procurement contact email" name="contact_email" type="email" defaultValue={user?.email ?? ""} required /><Field label="Procurement contact phone" name="contact_phone" /><label className="field wide"><span>Eligibility requirements</span><textarea name="eligibility_requirements" rows={2} /></label><label className="field wide"><span>Submission instructions</span><textarea name="submission_instructions" rows={2} /></label><label className="field wide"><span>Terms and conditions</span><textarea name="terms_and_conditions" rows={2} /></label></div>
+        </> : <>
+          <div className="line-items-heading"><div><h3>Supplier pricing</h3><p>Add the suppliers who quoted for this requisition and enter only their offered prices.</p></div><button type="button" className="secondary-button compact" disabled={!selectedRequisition} onClick={() => setOffers((current) => [...current, emptySupplierOffer(Math.max(...current.map((offer) => offer.key), 0) + 1)])}><Plus size={15} />Add supplier</button></div>
+          <div className="supplier-offer-list">{offers.map((offer, offerIndex) => <section className="supplier-offer-card" key={offer.key}><header><div className="supplier-offer-number">{offerIndex + 1}</div><div><span>Supplier proforma</span><strong>{offer.supplier_id ? String(suppliers.find((supplier) => String(supplier.id) === offer.supplier_id)?.name ?? "Supplier") : `Supplier ${offerIndex + 1}`}</strong></div><div className="supplier-offer-code"><span>Proforma number</span><strong>Auto-generated</strong></div>{offers.length > 1 && <button type="button" className="icon-button danger" title="Remove supplier" onClick={() => setOffers((current) => current.filter((item) => item.key !== offer.key))}><Trash2 size={16} /></button>}</header><div className="form-grid two"><label className="field"><span>Registered supplier</span><select value={offer.supplier_id} onChange={(event) => updateOffer(offer.key, { supplier_id: event.target.value })} required><option value="" disabled>{eligibleSuppliers.length === 0 ? "No category-eligible suppliers" : "Select supplier"}</option>{eligibleSuppliers.map((supplier) => <option key={String(supplier.id)} value={String(supplier.id)} disabled={offers.some((other) => other.key !== offer.key && other.supplier_id === String(supplier.id))}>{String(supplier.name)} ({String(supplier.code)})</option>)}</select></label><label className="field"><span>Valid until</span><input type="date" value={offer.valid_until} onChange={(event) => updateOffer(offer.key, { valid_until: event.target.value })} /></label></div><div className="supplier-price-table"><table><thead><tr><th>Requested product</th><th>Quantity</th><th>Offered unit price (TZS)</th><th>Offered subtotal</th></tr></thead><tbody>{requestItems.map((item) => { const itemId = Number(item.id); const unitPrice = Number(offer.prices[itemId] ?? 0); return <tr key={itemId}><td><strong>{String(item.item_name ?? "Item")}</strong><small>{String(item.specification ?? "No description")}</small></td><td>{Number(item.quantity ?? 0).toLocaleString()} {String(item.unit ?? "")}</td><td><input aria-label={`${String(item.item_name)} unit price for supplier ${offerIndex + 1}`} type="number" min="0" step="0.01" inputMode="decimal" value={offer.prices[itemId] ?? ""} onChange={(event) => updatePrice(offer.key, itemId, event.target.value)} required /></td><td><strong>TZS {(Number(item.quantity ?? 0) * unitPrice).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></td></tr>; })}</tbody></table></div><div className="supplier-offer-footer"><label className="field"><span>Supplier notes</span><textarea rows={2} value={offer.notes} onChange={(event) => updateOffer(offer.key, { notes: event.target.value })} /></label><div className="requisition-total"><span>Supplier total</span><strong>TZS {offerTotal(offer).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div></div></section>)}</div>
+        </>}
+        <div className="dialog-actions"><button type="button" className="secondary-button" onClick={close}>Cancel</button><button className="primary-button" disabled={submitting || !requisitionId || requestItems.length === 0 || (!isPublicRequest && (offers.some((offer) => !offer.supplier_id || requestItems.some((item) => offer.prices[Number(item.id)] === undefined || offer.prices[Number(item.id)] === ""))))}>{submitting && <LoaderCircle className="spin" size={16} />}{isPublicRequest ? "Send to GM for publication" : `Save ${offers.length} proforma${offers.length === 1 ? "" : "s"}`}</button></div>
       </form>
     </Modal>
   );
@@ -428,6 +481,6 @@ function Modal({ title, subtitle, close, large = false, children }: { title: str
   return <div className="modal-backdrop" role="presentation"><section className={large ? "modal large" : "modal"} role="dialog" aria-modal="true" aria-labelledby="modal-title"><header className="modal-header"><div><h2 id="modal-title">{title}</h2><p>{subtitle}</p></div><button className="icon-button" onClick={close} title="Close"><X size={19} /></button></header><div className="modal-body">{children}</div></section></div>;
 }
 
-function Field({ label, name, type = "text", required = false, wide = false }: { label: string; name: string; type?: string; required?: boolean; wide?: boolean }) {
-  return <label className={wide ? "field wide" : "field"}><span>{label}</span><input name={name} type={type} required={required} /></label>;
+function Field({ label, name, type = "text", required = false, wide = false, defaultValue }: { label: string; name: string; type?: string; required?: boolean; wide?: boolean; defaultValue?: string }) {
+  return <label className={wide ? "field wide" : "field"}><span>{label}</span><input name={name} type={type} required={required} defaultValue={defaultValue} /></label>;
 }

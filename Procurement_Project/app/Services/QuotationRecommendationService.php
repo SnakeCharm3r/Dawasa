@@ -44,10 +44,10 @@ class QuotationRecommendationService
                 'reason_for_selection' => $data['reason_for_selection'],
                 'non_lowest_price_reason' => $data['non_lowest_price_reason'] ?? null,
                 'total_quoted_amount' => $quotation->total_amount,
-                'status' => QuotationRecommendation::STATUS_SUBMITTED,
+                'status' => QuotationRecommendation::STATUS_DRAFT,
             ]);
 
-            $requisition->update(['status' => PurchaseRequisition::STATUS_PENDING_FINAL_APPROVAL]);
+            $requisition->update(['status' => PurchaseRequisition::STATUS_PENDING_REQUESTER_APPROVAL]);
 
             ProcurementApproval::create([
                 'purchase_requisition_id' => $requisition->id,
@@ -124,7 +124,7 @@ class QuotationRecommendationService
             ]);
 
             $requisition = $recommendation->requisition;
-            $requisition->update(['status' => PurchaseRequisition::STATUS_PENDING_FINAL_APPROVAL]);
+            $requisition->update(['status' => PurchaseRequisition::STATUS_PENDING_LINE_MANAGER_APPROVAL]);
 
             ProcurementApproval::create([
                 'purchase_requisition_id' => $recommendation->purchase_requisition_id,
@@ -132,6 +132,75 @@ class QuotationRecommendationService
                 'action' => ProcurementApproval::ACTION_RECOMMENDATION_SUBMITTED,
                 'actor_id' => auth()->id(),
                 'comments' => null,
+                'action_at' => now(),
+            ]);
+        });
+
+        return $recommendation->fresh();
+    }
+
+    public function lineManagerApprove(QuotationRecommendation $recommendation, string $comments, User $actor): QuotationRecommendation
+    {
+        if ($recommendation->status !== QuotationRecommendation::STATUS_SUBMITTED) {
+            throw new \RuntimeException('Only submitted recommendations can be approved by the line manager.');
+        }
+
+        return DB::transaction(function () use ($recommendation, $comments, $actor) {
+            $requisition = $recommendation->requisition;
+            $requisition->update(['status' => PurchaseRequisition::STATUS_PENDING_FINAL_APPROVAL]);
+
+            ProcurementApproval::create([
+                'purchase_requisition_id' => $requisition->id,
+                'quotation_recommendation_id' => $recommendation->id,
+                'action' => ProcurementApproval::ACTION_APPROVED,
+                'actor_id' => $actor->id,
+                'comments' => $comments,
+                'action_at' => now(),
+            ]);
+        });
+
+        return $recommendation->fresh();
+    }
+
+    public function requesterReturn(QuotationRecommendation $recommendation, string $comments, User $actor): QuotationRecommendation
+    {
+        if ($recommendation->status !== QuotationRecommendation::STATUS_DRAFT) {
+            throw new \RuntimeException('Only draft recommendations can be returned by the requester.');
+        }
+
+        DB::transaction(function () use ($recommendation, $comments, $actor) {
+            $recommendation->update(['status' => QuotationRecommendation::STATUS_DRAFT]);
+            $recommendation->requisition->update(['status' => PurchaseRequisition::STATUS_QUOTATIONS_READY]);
+
+            ProcurementApproval::create([
+                'purchase_requisition_id' => $recommendation->purchase_requisition_id,
+                'quotation_recommendation_id' => $recommendation->id,
+                'action' => ProcurementApproval::ACTION_REQUESTER_RETURNED,
+                'actor_id' => $actor->id,
+                'comments' => $comments,
+                'action_at' => now(),
+            ]);
+        });
+
+        return $recommendation->fresh();
+    }
+
+    public function lineManagerReturn(QuotationRecommendation $recommendation, string $comments, User $actor): QuotationRecommendation
+    {
+        if ($recommendation->status !== QuotationRecommendation::STATUS_SUBMITTED) {
+            throw new \RuntimeException('Only submitted recommendations can be returned by the line manager.');
+        }
+
+        DB::transaction(function () use ($recommendation, $comments, $actor) {
+            $recommendation->update(['status' => QuotationRecommendation::STATUS_DRAFT]);
+            $recommendation->requisition->update(['status' => PurchaseRequisition::STATUS_PENDING_REQUESTER_APPROVAL]);
+
+            ProcurementApproval::create([
+                'purchase_requisition_id' => $recommendation->purchase_requisition_id,
+                'quotation_recommendation_id' => $recommendation->id,
+                'action' => ProcurementApproval::ACTION_LINE_MANAGER_RETURNED,
+                'actor_id' => $actor->id,
+                'comments' => $comments,
                 'action_at' => now(),
             ]);
         });
@@ -225,7 +294,7 @@ class QuotationRecommendationService
             ProcurementApproval::create([
                 'purchase_requisition_id' => $recommendation->purchase_requisition_id,
                 'quotation_recommendation_id' => $recommendation->id,
-                'action' => ProcurementApproval::ACTION_REJECTED,
+                'action' => ProcurementApproval::ACTION_LINE_MANAGER_APPROVED,
                 'actor_id' => $actor->id,
                 'comments' => $comments,
                 'action_at' => now(),

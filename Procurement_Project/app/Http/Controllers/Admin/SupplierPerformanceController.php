@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
+use App\Models\GoodsReceiptNote;
 use App\Models\Supplier;
 use App\Models\SupplierPerformanceIncident;
 use App\Services\EntityAccessService;
@@ -56,6 +57,7 @@ class SupplierPerformanceController extends Controller
         $this->readable($request);
         $suppliers = Supplier::with('documents')->orderBy('name')->get()->map(function (Supplier $supplier) {
             $assessment = $this->compliance->assess($supplier);
+
             return [
                 'id' => $supplier->id,
                 'name' => $supplier->name,
@@ -69,6 +71,7 @@ class SupplierPerformanceController extends Controller
                 'expiring_documents' => $assessment['expiring_documents'],
             ];
         })->filter(fn ($supplier) => $supplier['compliance_status'] !== 'complete')->values();
+
         return response()->json(['data' => $suppliers]);
     }
 
@@ -78,6 +81,7 @@ class SupplierPerformanceController extends Controller
         $entityId = $this->entityAccess->entityId($request, $request->user());
         $evaluation = $this->performance->calculate($supplier, $entityId, $request->user());
         ActivityLog::record($request->user(), 'supplier.performance_calculated', $supplier, [], ['evaluation_id' => $evaluation->id, 'grade' => $evaluation->grade]);
+
         return response()->json(['message' => 'Supplier performance snapshot calculated.', 'data' => $evaluation], 201);
     }
 
@@ -95,6 +99,7 @@ class SupplierPerformanceController extends Controller
         ]);
         $incident = $this->performance->recordIncident($supplier, $data, $request->user());
         ActivityLog::record($request->user(), 'supplier.incident_recorded', $supplier, [], ['incident_id' => $incident->id, 'severity' => $incident->severity, 'incident_type' => $incident->incident_type]);
+
         return response()->json(['message' => 'Supplier performance incident recorded.', 'data' => $incident], 201);
     }
 
@@ -105,6 +110,7 @@ class SupplierPerformanceController extends Controller
         abort_if($incident->resolved_at, 422, 'This incident is already resolved.');
         $incident->update(['resolved_at' => now(), 'resolution_notes' => $data['resolution_notes']]);
         ActivityLog::record($request->user(), 'supplier.incident_resolved', $incident->supplier, [], ['incident_id' => $incident->id, 'resolution_notes' => $data['resolution_notes']]);
+
         return response()->json(['message' => 'Incident resolved.', 'data' => $incident->fresh()]);
     }
 
@@ -119,6 +125,7 @@ class SupplierPerformanceController extends Controller
         $override = $supplier->performanceOverrides()->create([...$data, 'created_by' => $request->user()->id]);
         $this->compliance->assess($supplier);
         ActivityLog::record($request->user(), 'supplier.eligibility_override', $supplier, [], ['override_id' => $override->id, ...$data]);
+
         return response()->json(['message' => 'Temporary supplier eligibility override recorded.', 'data' => $override], 201);
     }
 
@@ -133,11 +140,19 @@ class SupplierPerformanceController extends Controller
         if (! $financial) {
             $orders->each->makeHidden(['subtotal', 'discount_amount', 'tax_amount', 'total_amount']);
         }
+
         return [
             'tender_responses' => $supplier->tenderResponses()->with('tender:id,tender_number,title,status')->latest()->limit(100)->get()->makeHidden($financial ? [] : ['subtotal', 'tax_amount', 'total_amount']),
             'purchase_orders' => $orders,
-            'goods_receipts' => $supplier->purchaseOrders()->when($entityId, fn ($query) => $query->where('business_entity_id', $entityId))->with('items')->get()->flatMap(fn ($order) => $order->id ? \App\Models\GoodsReceiptNote::with('items')->where('purchase_order_id', $order->id)->get() : collect())->values(),
-            'invoice_match_outcomes' => $supplier->invoices()->when($entityId, fn ($query) => $query->where('business_entity_id', $entityId))->with('matchRecords')->latest()->limit(100)->get()->map(fn ($invoice) => ['id' => $invoice->id, 'invoice_number' => $invoice->invoice_number, 'status' => $invoice->status, 'match_records' => $invoice->matchRecords]),
+            'goods_receipts' => $supplier->purchaseOrders()->when($entityId, fn ($query) => $query->where('business_entity_id', $entityId))->with('items')->get()->flatMap(fn ($order) => $order->id ? GoodsReceiptNote::with('items')->where('purchase_order_id', $order->id)->get() : collect())->values(),
+            'invoice_match_outcomes' => $supplier->invoices()->when($entityId, fn ($query) => $query->where('business_entity_id', $entityId))->with('matchRecords')->latest()->limit(100)->get()->map(fn ($invoice) => [
+                'id' => $invoice->id,
+                'invoice_number' => $invoice->invoice_number,
+                'status' => $invoice->status,
+                'match_records' => $invoice->matchRecords->map(fn ($record) => $financial
+                    ? $record
+                    : $record->only(['id', 'match_status', 'matched_at'])),
+            ]),
         ];
     }
 }

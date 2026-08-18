@@ -28,7 +28,18 @@ class SupplierPerformanceEvaluation extends Model
         static::deleting(fn () => throw new \LogicException('Supplier performance evaluations are immutable.'));
     }
 
-    public function supplier(): BelongsTo { return $this->belongsTo(Supplier::class); }
-    public function businessEntity(): BelongsTo { return $this->belongsTo(BusinessEntity::class); }
-    public function calculatedBy(): BelongsTo { return $this->belongsTo(User::class, 'calculated_by'); }
+    public function supplier(): BelongsTo
+    {
+        return $this->belongsTo(Supplier::class);
+    }
+
+    public function businessEntity(): BelongsTo
+    {
+        return $this->belongsTo(BusinessEntity::class);
+    }
+
+    public function calculatedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'calculated_by');
+    }
 }

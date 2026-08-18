@@ -8,6 +8,7 @@ use App\Models\Supplier;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rules\Password;
 use Spatie\Permission\Models\Role;
@@ -62,8 +63,10 @@ class SupplierRegistrationController extends Controller
             $nameParts = preg_split('/\s+/', trim($data['primary_contact_name']), 2);
             $user = User::create([
                 'name' => $data['primary_contact_name'], 'first_name' => $nameParts[0], 'last_name' => $nameParts[1] ?? '-', 'email' => $data['email'],
-                'phone' => $data['primary_contact_phone'], 'job_title' => $data['primary_contact_position'] ?? 'Supplier contact', 'password' => $data['password'], 'is_active' => true,
+                'phone' => $data['primary_contact_phone'], 'job_title' => $data['primary_contact_position'] ?? 'Supplier contact', 'password' => $data['password'],
+                'is_active' => true,
             ]);
+            $user->markEmailAsVerified();
             $role = Role::findOrCreate('supplier', 'web');
             $user->assignRole($role);
 
@@ -94,12 +97,14 @@ class SupplierRegistrationController extends Controller
             ]);
             $supplier->categories()->sync($data['category_ids']);
             ActivityLog::record($user, 'supplier.application_submitted', $supplier, [], ['portal_status' => 'pending_verification']);
+
             return $supplier;
         });
 
-        $supplier->user->sendEmailVerificationNotification();
+        Auth::login($supplier->user);
+        $request->session()->regenerate();
 
-        return response()->json(['message' => 'Supplier application submitted.', 'data' => [
+        return response()->json(['message' => 'Supplier account created. You now have direct portal access.', 'data' => [
             'application_reference' => $supplier->application_reference, 'status' => $supplier->portal_status,
         ]], 201);
     }
@@ -108,6 +113,7 @@ class SupplierRegistrationController extends Controller
     {
         $year = now()->year;
         $sequence = Supplier::withTrashed()->whereYear('created_at', $year)->lockForUpdate()->count() + 1;
+
         return sprintf('SUP-APP-%d-%05d', $year, $sequence);
     }
 }

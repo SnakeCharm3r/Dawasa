@@ -77,10 +77,15 @@ class SupplierQuotationController extends Controller
             ], 422);
         }
 
-        return DB::transaction(function () use ($request) {
+        $requisition->load('items');
+        abort_unless($requisition->items->count() === count($request->validated('items')), 422, 'Every requisition item must have one supplier price.');
+
+        return DB::transaction(function () use ($request, $requisition) {
             $data = $request->validated();
-            $items = collect($data['items']);
-            $total = $items->sum(fn (array $item) => (float) $item['quantity'] * (float) $item['unit_price']);
+            $submittedItems = collect($data['items'])->values();
+            $total = $requisition->items->values()
+                ->map(fn ($item, $index) => (float) $item->quantity * (float) $submittedItems->get($index)['unit_price'])
+                ->sum();
 
             $quotation = SupplierQuotation::create([
                 ...collect($data)->except('items')->all(),
@@ -88,24 +93,110 @@ class SupplierQuotationController extends Controller
                 'total_amount' => $total,
                 'status' => SupplierQuotation::STATUS_DRAFT,
             ]);
+            $quotation->update([
+                'quotation_number' => sprintf('PRO-%d-%06d', $quotation->created_at->year, $quotation->id),
+            ]);
 
-            $quotation->items()->createMany($items->map(fn (array $item) => [
-                ...$item,
-                'total_price' => (float) $item['quantity'] * (float) $item['unit_price'],
-            ])->all());
+            $quotation->items()->createMany($requisition->items->values()->map(function ($item, $index) use ($submittedItems) {
+                $unitPrice = (float) $submittedItems->get($index)['unit_price'];
+
+                return [
+                    'item_name' => $item->item_name,
+                    'specification' => $item->specification,
+                    'quantity' => $item->quantity,
+                    'unit' => $item->unit,
+                    'unit_price' => $unitPrice,
+                    'total_price' => (float) $item->quantity * $unitPrice,
+                    'notes' => $item->notes,
+                ];
+            })->all());
 
             return response()->json([
-                'message' => 'Supplier proforma created successfully.',
+                'message' => 'Supplier proforma '.$quotation->quotation_number.' created successfully.',
                 'data' => $quotation->load(['supplier', 'requisition', 'items']),
             ], 201);
         });
+    }
+
+    public function storeBatch(Request $request): JsonResponse
+    {
+        $this->authorize('create', SupplierQuotation::class);
+        $data = $request->validate([
+            'purchase_requisition_id' => ['required', 'integer', 'exists:purchase_requisitions,id'],
+            'offers' => ['required', 'array', 'min:1', 'max:20'],
+            'offers.*.supplier_id' => ['required', 'integer', 'distinct', 'exists:suppliers,id'],
+            'offers.*.valid_until' => ['nullable', 'date', 'after:today'],
+            'offers.*.notes' => ['nullable', 'string', 'max:5000'],
+            'offers.*.prices' => ['required', 'array', 'min:1'],
+            'offers.*.prices.*.purchase_requisition_item_id' => ['required', 'integer'],
+            'offers.*.prices.*.unit_price' => ['required', 'numeric', 'gte:0'],
+        ]);
+
+        $requisition = PurchaseRequisition::with('items')->findOrFail($data['purchase_requisition_id']);
+        abort_unless($this->entityAccess->canAccess($request->user(), $requisition->business_entity_id), 403);
+        abort_unless(in_array($requisition->status, [
+            PurchaseRequisition::STATUS_APPROVED_FOR_SOURCING,
+            PurchaseRequisition::STATUS_QUOTATIONS_READY,
+        ], true), 422, 'Proformas can only be added to requisitions approved for sourcing.');
+        abort_if($requisition->items->isEmpty(), 422, 'The selected requisition has no items to price.');
+
+        $expectedItemIds = $requisition->items->pluck('id')->map(fn ($id) => (int) $id)->sort()->values()->all();
+        foreach ($data['offers'] as $offer) {
+            $actualItemIds = collect($offer['prices'])->pluck('purchase_requisition_item_id')->map(fn ($id) => (int) $id)->sort()->values()->all();
+            abort_unless($actualItemIds === $expectedItemIds, 422, 'Every requisition item must have one supplier price, and unrelated items are not allowed.');
+        }
+
+        $suppliers = Supplier::whereIn('id', collect($data['offers'])->pluck('supplier_id'))->get()->keyBy('id');
+        foreach ($suppliers as $supplier) {
+            abort_unless($this->supplierCompliance->canParticipate($supplier), 422, $supplier->name.' is not currently eligible for sourcing or award.');
+            abort_unless($supplier->categories()->whereKey($requisition->supplier_category_id)->exists(), 422, $supplier->name.' is not approved for the requisition category.');
+        }
+
+        $quotations = DB::transaction(function () use ($data, $requisition) {
+            return collect($data['offers'])->map(function (array $offer) use ($requisition) {
+                $prices = collect($offer['prices'])->keyBy('purchase_requisition_item_id');
+                $total = $requisition->items->sum(fn ($item) => (float) $item->quantity * (float) $prices->get($item->id)['unit_price']);
+                $quotation = SupplierQuotation::create([
+                    'purchase_requisition_id' => $requisition->id,
+                    'supplier_id' => $offer['supplier_id'],
+                    'prepared_by' => Auth::id(),
+                    'valid_until' => $offer['valid_until'] ?? null,
+                    'notes' => $offer['notes'] ?? null,
+                    'total_amount' => $total,
+                    'status' => SupplierQuotation::STATUS_DRAFT,
+                ]);
+                $quotation->update([
+                    'quotation_number' => sprintf('PRO-%d-%06d', $quotation->created_at->year, $quotation->id),
+                ]);
+                $quotation->items()->createMany($requisition->items->map(function ($item) use ($prices) {
+                    $unitPrice = (float) $prices->get($item->id)['unit_price'];
+
+                    return [
+                        'item_name' => $item->item_name,
+                        'specification' => $item->specification,
+                        'quantity' => $item->quantity,
+                        'unit' => $item->unit,
+                        'unit_price' => $unitPrice,
+                        'total_price' => (float) $item->quantity * $unitPrice,
+                        'notes' => $item->notes,
+                    ];
+                })->all());
+
+                return $quotation->load(['supplier', 'items']);
+            })->values();
+        });
+
+        return response()->json([
+            'message' => $quotations->count().' supplier proforma'.($quotations->count() === 1 ? '' : 's').' created from the requisition items.',
+            'data' => $quotations,
+        ], 201);
     }
 
     public function show(SupplierQuotation $supplierQuotation): JsonResponse
     {
         $this->authorize('view', $supplierQuotation);
 
-        $supplierQuotation->load(['supplier', 'requisition', 'items']);
+        $supplierQuotation->load(['supplier', 'requisition', 'items', 'approvalRecommendation.procurementApprovals.actor']);
 
         return response()->json(['data' => $supplierQuotation]);
     }

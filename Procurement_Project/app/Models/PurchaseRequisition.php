@@ -26,6 +26,10 @@ class PurchaseRequisition extends Model
 
     public const STATUS_QUOTATIONS_READY = 'quotations_ready';
 
+    public const STATUS_PENDING_REQUESTER_APPROVAL = 'pending_requester_approval';
+
+    public const STATUS_PENDING_LINE_MANAGER_APPROVAL = 'pending_line_manager_approval';
+
     public const STATUS_PENDING_FINAL_APPROVAL = 'pending_final_approval';
 
     public const STATUS_APPROVED_FOR_PURCHASE = 'approved_for_purchase';
@@ -138,6 +142,11 @@ class PurchaseRequisition extends Model
     public function supplierCategory(): BelongsTo
     {
         return $this->belongsTo(SupplierCategory::class);
+    }
+
+    public function tender(): HasOne
+    {
+        return $this->hasOne(Tender::class, 'purchase_requisition_id')->latestOfMany();
     }
 
     public function getEstimatedAmountAttribute($value)

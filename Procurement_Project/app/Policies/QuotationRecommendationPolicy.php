@@ -62,30 +62,45 @@ class QuotationRecommendationPolicy
 
     public function submit(User $user, QuotationRecommendation $recommendation): bool
     {
-        return $this->update($user, $recommendation);
-    }
-
-    public function approve(User $user, QuotationRecommendation $recommendation): bool
-    {
-        if (! $user->hasRole('gm')) {
+        if (! $user->hasRole('requester')) {
             return false;
         }
 
-        if ($user->id === $recommendation->requisition->requester_id) {
+        if ($user->id !== $recommendation->requisition->requester_id) {
+            return false;
+        }
+
+        return $recommendation->status === QuotationRecommendation::STATUS_DRAFT
+            && $recommendation->requisition->status === PurchaseRequisition::STATUS_PENDING_REQUESTER_APPROVAL;
+    }
+
+    public function requesterSubmit(User $user, QuotationRecommendation $recommendation): bool
+    {
+        return $this->submit($user, $recommendation);
+    }
+
+    public function requesterReturn(User $user, QuotationRecommendation $recommendation): bool
+    {
+        return $this->submit($user, $recommendation);
+    }
+
+    public function lineManagerApprove(User $user, QuotationRecommendation $recommendation): bool
+    {
+        if (! $user->hasAnyRole(['line_manager', 'department_head'])) {
+            return false;
+        }
+
+        if ($user->id !== $recommendation->requisition->line_manager_id) {
             return false;
         }
 
         return $recommendation->status === QuotationRecommendation::STATUS_SUBMITTED
+            && $recommendation->requisition->status === PurchaseRequisition::STATUS_PENDING_LINE_MANAGER_APPROVAL
             && app(EntityAccessService::class)->canAccess($user, $recommendation->requisition->business_entity_id);
     }
 
-    public function returnToSourcing(User $user, QuotationRecommendation $recommendation): bool
+    public function lineManagerReturn(User $user, QuotationRecommendation $recommendation): bool
     {
-        return $this->approve($user, $recommendation);
-    }
-
-    public function reject(User $user, QuotationRecommendation $recommendation): bool
-    {
-        return $this->approve($user, $recommendation);
+        return $this->lineManagerApprove($user, $recommendation);
     }
 }

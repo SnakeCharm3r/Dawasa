@@ -94,6 +94,7 @@ class PurchaseRequisitionResource extends JsonResource
                 if (! $isProcurementOnly) {
                     $data['comments'] = $approval->comments;
                 }
+
                 return $data;
             }),
             'activity_logs' => $this->when($canSeeFinancials && $this->relationLoaded('activityLogs'), fn () => $this->activityLogs->map(function ($log) use ($canSeeFullBudget) {
@@ -109,6 +110,56 @@ class PurchaseRequisitionResource extends JsonResource
                     ],
                 ];
             })),
+            'supplier_options' => $this->whenLoaded('supplierQuotations', function () {
+                $selectedQuotationIds = $this->relationLoaded('quotationRecommendations')
+                    ? $this->quotationRecommendations
+                        ->whereIn('status', ['draft', 'submitted', 'approved'])
+                        ->pluck('selected_quotation_id')
+                    : collect();
+
+                return $this->supplierQuotations->sortBy('total_amount')->values()->map(function ($quotation) use ($selectedQuotationIds) {
+                    $response = $quotation->tenderResponse;
+
+                    return [
+                        'id' => $quotation->id,
+                        'quotation_number' => $quotation->quotation_number,
+                        'valid_until' => $quotation->valid_until?->toDateString(),
+                        'total_amount' => $quotation->total_amount,
+                        'status' => $quotation->status,
+                        'notes' => $quotation->notes,
+                        'source' => $response ? 'supplier_portal_bid' : 'direct_proforma',
+                        'bid_receipt_number' => $response?->receipt_number,
+                        'bid_status' => $response?->status,
+                        'award_status' => $response?->award_status,
+                        'is_tender_winner' => $response?->award_status === 'winner',
+                        'is_selected' => $selectedQuotationIds->contains($quotation->id),
+                        'supplier' => [
+                            'id' => $quotation->supplier?->id,
+                            'name' => $quotation->supplier?->name,
+                            'code' => $quotation->supplier?->code,
+                            'contact_person' => $quotation->supplier?->contact_person ?? $quotation->supplier?->primary_contact_name,
+                            'email' => $quotation->supplier?->email ?? $quotation->supplier?->primary_contact_email,
+                            'phone' => $quotation->supplier?->phone ?? $quotation->supplier?->primary_contact_phone,
+                        ],
+                        'items' => $quotation->items->map(fn ($item) => [
+                            'id' => $item->id,
+                            'item_name' => $item->item_name,
+                            'quantity' => $item->quantity,
+                            'unit' => $item->unit,
+                            'unit_price' => $item->unit_price,
+                            'total_price' => $item->total_price,
+                        ]),
+                    ];
+                });
+            }),
+            'tender_summary' => $this->whenLoaded('tender', fn () => $this->tender ? [
+                'id' => $this->tender->id,
+                'tender_number' => $this->tender->tender_number,
+                'title' => $this->tender->title,
+                'status' => $this->tender->status,
+                'submission_deadline' => $this->tender->submission_deadline?->toDateTimeString(),
+                'awarded_at' => $this->tender->awarded_at?->toDateTimeString(),
+            ] : null),
         ];
 
         if ($canSeeFinancials) {

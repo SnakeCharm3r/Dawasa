@@ -39,6 +39,8 @@ export function RequisitionWorkspaceModal({ item, actions, close, act, edit }: P
   const items = (requisition.items as JsonRecord[] | undefined) ?? [];
   const approvals = (requisition.approvals as JsonRecord[] | undefined) ?? [];
   const activities = (requisition.activity_logs as JsonRecord[] | undefined) ?? [];
+  const supplierOptions = (requisition.supplier_options as JsonRecord[] | undefined) ?? [];
+  const tenderSummary = objectAt(requisition, "tender_summary");
   const requester = objectAt(requisition, "requester");
   const manager = objectAt(requisition, "line_manager");
   const entity = objectAt(requisition, "business_entity");
@@ -93,6 +95,18 @@ export function RequisitionWorkspaceModal({ item, actions, close, act, edit }: P
                   {items.length === 0 && <tr><td colSpan={7} className="requisition-empty-row">No requested items recorded.</td></tr>}
                 </tbody>{requisition.estimated_amount != null && <tfoot><tr><td colSpan={6}>Estimated request total</td><td className="numeric">{money(estimatedTotal)}</td></tr></tfoot>}</table></div>
               </section>
+
+              {(supplierOptions.length > 0 || Object.keys(tenderSummary).length > 0) && <section className="requisition-supplier-options">
+                <div className="requisition-section-heading"><div><h2>Supplier proformas and bids</h2>{Object.keys(tenderSummary).length > 0 && <p>{String(tenderSummary.tender_number ?? "Public RFQ")} · {humanize(String(tenderSummary.status ?? "pending"))}</p>}</div><span>{supplierOptions.length} option{supplierOptions.length === 1 ? "" : "s"}</span></div>
+                {supplierOptions.length === 0 ? <div className="requisition-options-empty">The public RFQ is in progress. Supplier bids will remain sealed until the deadline and appear here after procurement review.</div> : <div className="requisition-option-grid">{supplierOptions.map((option) => {
+                  const supplier = objectAt(option, "supplier");
+                  return <article className={`requisition-option-card ${option.is_tender_winner || option.is_selected ? "selected" : ""}`} key={String(option.id)}>
+                    <header><div><span>{option.source === "supplier_portal_bid" ? "Portal bid" : "Direct proforma"}</span><h3>{String(supplier.name ?? "Supplier")}</h3></div>{Boolean(option.is_tender_winner) ? <b>Tender winner</b> : Boolean(option.is_selected) ? <b>Selected</b> : <span className={`status status-${String(option.status ?? "draft").replaceAll("_", "-")}`}>{humanize(String(option.status ?? "draft"))}</span>}</header>
+                    <dl><div><dt>Proforma</dt><dd>{String(option.quotation_number ?? "-")}</dd></div><div><dt>Offered amount</dt><dd>{money(Number(option.total_amount ?? 0))}</dd></div><div><dt>Supplier code</dt><dd>{String(supplier.code ?? "-")}</dd></div><div><dt>Valid until</dt><dd>{formatDate(option.valid_until)}</dd></div></dl>
+                    <footer><span>{String(supplier.contact_person ?? "Supplier contact")}</span><span>{String(supplier.phone ?? supplier.email ?? "Contact not provided")}</span>{Boolean(option.bid_receipt_number) && <span>Receipt {String(option.bid_receipt_number)}</span>}</footer>
+                  </article>;
+                })}</div>}
+              </section>}
 
               <section className="requisition-supporting-row">
                 <div><FileText size={16} /><span>Attachments</span><strong>{Array.isArray(requisition.attachments) ? requisition.attachments.length : 0}</strong></div>
@@ -159,6 +173,8 @@ function currentStage(status: string, manager: JsonRecord) {
     returned: { label: "Corrections required", owner: "Requester", description: "Revise the request before resubmission.", tone: "returned" },
     approved_for_sourcing: { label: "Procurement sourcing", owner: "Procurement team", description: "Obtain and assess supplier proformas.", tone: "active" },
     quotations_ready: { label: "Proforma selection", owner: "Procurement team", description: "Select a proforma for final approval.", tone: "pending" },
+    pending_requester_approval: { label: "Requester proforma review", owner: "Requester", description: "Review supplier prices and select a proforma.", tone: "submitted" },
+    pending_line_manager_approval: { label: "Line manager review", owner: String(manager.name ?? "Line manager"), description: "Review the requester's selected proforma.", tone: "submitted" },
     pending_final_approval: { label: "Final approval", owner: "General Manager", description: "Review the recommended supplier proforma.", tone: "submitted" },
     approved_for_purchase: { label: "Approved", owner: "Procurement team", description: "The request is ready for LPO creation.", tone: "approved" },
     returned_to_sourcing: { label: "Sourcing revision", owner: "Procurement team", description: "Correct the proforma recommendation.", tone: "returned" },
@@ -174,7 +190,7 @@ function approvalState(action: string): "complete" | "pending" | "rejected" {
 }
 
 function isTerminal(status: string) {
-  return ["approved_for_purchase", "rejected", "cancelled"].includes(status);
+  return ["approved_for_purchase", "rejected", "cancelled", "returned_to_sourcing", "withdrawn", "expired"].includes(status);
 }
 
 function activityStatus(activity: JsonRecord) {

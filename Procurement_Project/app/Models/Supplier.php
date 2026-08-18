@@ -4,10 +4,10 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Supplier extends Model
@@ -95,16 +95,63 @@ class Supplier extends Model
         return $this->hasMany(SupplierQuotation::class);
     }
 
-    public function user(): BelongsTo { return $this->belongsTo(User::class); }
-    public function categories(): BelongsToMany { return $this->belongsToMany(SupplierCategory::class, 'supplier_category_supplier'); }
-    public function documents(): HasMany { return $this->hasMany(SupplierDocument::class); }
-    public function tenderResponses(): HasMany { return $this->hasMany(TenderResponse::class); }
-    public function verifier(): BelongsTo { return $this->belongsTo(User::class, 'verified_by'); }
-    public function purchaseOrders(): HasMany { return $this->hasMany(PurchaseOrder::class); }
-    public function invoices(): HasMany { return $this->hasMany(SupplierInvoice::class); }
-    public function performanceEvaluations(): HasMany { return $this->hasMany(SupplierPerformanceEvaluation::class); }
-    public function performanceIncidents(): HasMany { return $this->hasMany(SupplierPerformanceIncident::class); }
-    public function performanceOverrides(): HasMany { return $this->hasMany(SupplierPerformanceOverride::class); }
-    public function currentPerformance(): HasOne { return $this->hasOne(SupplierPerformanceEvaluation::class)->latestOfMany('calculated_at'); }
-    public function statusChangedBy(): BelongsTo { return $this->belongsTo(User::class, 'status_changed_by'); }
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    public function categories(): BelongsToMany
+    {
+        return $this->belongsToMany(SupplierCategory::class, 'supplier_category_supplier');
+    }
+
+    public function documents(): HasMany
+    {
+        return $this->hasMany(SupplierDocument::class);
+    }
+
+    public function tenderResponses(): HasMany
+    {
+        return $this->hasMany(TenderResponse::class);
+    }
+
+    public function verifier(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'verified_by');
+    }
+
+    public function purchaseOrders(): HasMany
+    {
+        return $this->hasMany(PurchaseOrder::class);
+    }
+
+    public function invoices(): HasMany
+    {
+        return $this->hasMany(SupplierInvoice::class);
+    }
+
+    public function performanceEvaluations(): HasMany
+    {
+        return $this->hasMany(SupplierPerformanceEvaluation::class);
+    }
+
+    public function performanceIncidents(): HasMany
+    {
+        return $this->hasMany(SupplierPerformanceIncident::class);
+    }
+
+    public function performanceOverrides(): HasMany
+    {
+        return $this->hasMany(SupplierPerformanceOverride::class);
+    }
+
+    public function currentPerformance(): HasOne
+    {
+        return $this->hasOne(SupplierPerformanceEvaluation::class)->latestOfMany('calculated_at');
+    }
+
+    public function statusChangedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'status_changed_by');
+    }
 }

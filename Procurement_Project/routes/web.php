@@ -3,14 +3,19 @@
 use App\Http\Controllers\Admin\BusinessEntityController;
 use App\Http\Controllers\Admin\DepartmentController;
 use App\Http\Controllers\Admin\SupplierController;
-use App\Http\Controllers\Admin\SupplierVerificationController;
 use App\Http\Controllers\Admin\SupplierPerformanceController;
+use App\Http\Controllers\Admin\SupplierVerificationController;
 use App\Http\Controllers\Admin\TenderController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\Budget\BudgetApprovalController;
 use App\Http\Controllers\Budget\EntityBudgetController;
 use App\Http\Controllers\Budget\FinancialYearController;
+use App\Http\Controllers\Portal\PublicTenderController;
+use App\Http\Controllers\Portal\SupplierEmailVerificationController;
+use App\Http\Controllers\Portal\SupplierPortalController;
+use App\Http\Controllers\Portal\SupplierRegistrationController;
+use App\Http\Controllers\Portal\TenderResponseController;
 use App\Http\Controllers\Requisition\FinalApprovalController;
 use App\Http\Controllers\Requisition\GoodsReceiptInspectionController;
 use App\Http\Controllers\Requisition\GoodsReceiptNoteController;
@@ -21,6 +26,7 @@ use App\Http\Controllers\Requisition\PaymentVoucherController;
 use App\Http\Controllers\Requisition\ProcurementClosureController;
 use App\Http\Controllers\Requisition\ProcurementDashboardController;
 use App\Http\Controllers\Requisition\ProcurementReportController;
+use App\Http\Controllers\Requisition\ProformaApprovalController;
 use App\Http\Controllers\Requisition\PurchaseOrderConfirmationController;
 use App\Http\Controllers\Requisition\PurchaseOrderController;
 use App\Http\Controllers\Requisition\PurchaseRequisitionController;
@@ -31,11 +37,6 @@ use App\Http\Controllers\Requisition\RequisitionAttachmentController;
 use App\Http\Controllers\Requisition\SupplierInvoiceController;
 use App\Http\Controllers\Requisition\SupplierQuotationController;
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\Portal\PublicTenderController;
-use App\Http\Controllers\Portal\SupplierPortalController;
-use App\Http\Controllers\Portal\SupplierRegistrationController;
-use App\Http\Controllers\Portal\TenderResponseController;
-use App\Http\Controllers\Portal\SupplierEmailVerificationController;
 
 Route::get('/', function () {
     return view('welcome');
@@ -115,6 +116,7 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
     Route::post('tenders/{tender}/publish', [TenderController::class, 'publish'])->name('tenders.publish');
     Route::post('tenders/{tender}/invite', [TenderController::class, 'invite'])->name('tenders.invite');
     Route::post('tenders/{tender}/close', [TenderController::class, 'close'])->name('tenders.close');
+    Route::post('tenders/{tender}/responses/{tenderResponse}/award', [TenderController::class, 'award'])->name('tenders.responses.award');
     Route::post('tenders/{tender}/cancel', [TenderController::class, 'cancel'])->name('tenders.cancel');
     Route::get('tenders/{tender}/responses', [TenderController::class, 'responses'])->name('tenders.responses');
     Route::post('tender-responses/{tenderResponse}/compliance', [TenderController::class, 'compliance'])->name('tender-responses.compliance');
@@ -141,10 +143,13 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
     Route::post('purchase-requisitions/{purchaseRequisition}/submit', [PurchaseRequisitionController::class, 'submit'])->name('purchase-requisitions.submit');
     Route::post('purchase-requisitions/{purchaseRequisition}/cancel', [PurchaseRequisitionController::class, 'cancel'])->name('purchase-requisitions.cancel');
     Route::post('purchase-requisitions/{purchaseRequisition}/quotations-ready', [PurchaseRequisitionController::class, 'markQuotationsReady'])->name('purchase-requisitions.quotations-ready');
+    Route::post('purchase-requisitions/{purchaseRequisition}/other-suppliers-tender', [TenderController::class, 'storeFromOtherSuppliers'])->name('purchase-requisitions.other-suppliers-tender');
 
     Route::post('purchase-requisitions/{purchaseRequisition}/attachments', [RequisitionAttachmentController::class, 'store'])->name('purchase-requisitions.attachments.store');
     Route::get('purchase-requisitions/{purchaseRequisition}/attachments/{attachment}', [RequisitionAttachmentController::class, 'show'])->name('purchase-requisitions.attachments.show');
     Route::delete('purchase-requisitions/{purchaseRequisition}/attachments/{attachment}', [RequisitionAttachmentController::class, 'destroy'])->name('purchase-requisitions.attachments.destroy');
+
+    Route::post('supplier-quotations/batch', [SupplierQuotationController::class, 'storeBatch'])->name('supplier-quotations.batch');
 
     Route::apiResource('supplier-quotations', SupplierQuotationController::class)
         ->parameters(['supplier-quotations' => 'supplierQuotation'])
@@ -165,6 +170,11 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
     Route::patch('purchase-requisitions/{purchaseRequisition}/quotation-recommendations/{quotationRecommendation}', [QuotationRecommendationController::class, 'update'])->name('purchase-requisitions.quotation-recommendations.update');
     Route::post('purchase-requisitions/{purchaseRequisition}/quotation-recommendations/{quotationRecommendation}/submit', [QuotationRecommendationController::class, 'submit'])->name('purchase-requisitions.quotation-recommendations.submit');
     Route::get('purchase-requisitions/{purchaseRequisition}/quotation-comparison', [QuotationRecommendationController::class, 'compare'])->name('purchase-requisitions.quotation-comparison');
+
+    Route::post('quotation-recommendations/{quotationRecommendation}/requester-submit', [ProformaApprovalController::class, 'requesterSubmit'])->name('quotation-recommendations.requester-submit');
+    Route::post('quotation-recommendations/{quotationRecommendation}/requester-return', [ProformaApprovalController::class, 'requesterReturn'])->name('quotation-recommendations.requester-return');
+    Route::post('quotation-recommendations/{quotationRecommendation}/line-manager-approve', [ProformaApprovalController::class, 'lineManagerApprove'])->name('quotation-recommendations.line-manager-approve');
+    Route::post('quotation-recommendations/{quotationRecommendation}/line-manager-return', [ProformaApprovalController::class, 'lineManagerReturn'])->name('quotation-recommendations.line-manager-return');
 
     Route::apiResource('purchase-orders', PurchaseOrderController::class)
         ->parameters(['purchase-orders' => 'purchaseOrder'])

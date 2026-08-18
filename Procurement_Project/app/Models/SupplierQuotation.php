@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\ActivityLog;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -76,6 +77,18 @@ class SupplierQuotation extends Model
     public function approvalRecommendation(): HasOne
     {
         return $this->hasOne(QuotationRecommendation::class, 'selected_quotation_id')->latestOfMany();
+    }
+
+    public function tenderResponse(): HasOne
+    {
+        return $this->hasOne(TenderResponse::class, 'supplier_quotation_id');
+    }
+
+    public function activityLogs(): HasMany
+    {
+        return $this->hasMany(ActivityLog::class, 'subject_id')
+            ->where('subject_type', self::class)
+            ->latest();
     }
 
     public function scopeValid($query)

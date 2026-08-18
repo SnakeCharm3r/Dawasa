@@ -2,8 +2,6 @@
 
 namespace App\Http\Requests;
 
-use App\Http\Requests\CeoAwareFormRequest;
-
 class StoreSupplierQuotationRequest extends CeoAwareFormRequest
 {
     public function authorize(): bool
@@ -16,7 +14,6 @@ class StoreSupplierQuotationRequest extends CeoAwareFormRequest
         return [
             'purchase_requisition_id' => ['required', 'exists:purchase_requisitions,id'],
             'supplier_id' => ['required', 'exists:suppliers,id'],
-            'quotation_number' => ['required', 'string', 'max:50'],
             'valid_until' => ['nullable', 'date', 'after:today'],
             'status' => ['nullable', 'in:draft,active,withdrawn,expired'],
             'notes' => ['nullable', 'string'],

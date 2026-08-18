@@ -2,8 +2,6 @@
 
 namespace App\Http\Requests;
 
-use App\Http\Requests\CeoAwareFormRequest;
-
 class UpdateSupplierQuotationRequest extends CeoAwareFormRequest
 {
     public function authorize(): bool
@@ -14,7 +12,6 @@ class UpdateSupplierQuotationRequest extends CeoAwareFormRequest
     public function rules(): array
     {
         return [
-            'quotation_number' => ['nullable', 'string', 'max:50'],
             'valid_until' => ['nullable', 'date', 'after:today'],
             'status' => ['nullable', 'in:draft,active,withdrawn,expired'],
             'notes' => ['nullable', 'string'],

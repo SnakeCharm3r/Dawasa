@@ -11,8 +11,8 @@ use App\Http\Resources\PurchaseRequisitionResource;
 use App\Models\ActivityLog;
 use App\Models\PurchaseRequisition;
 use App\Models\RequisitionApproval;
-use App\Services\PurchaseRequisitionService;
 use App\Services\EntityAccessService;
+use App\Services\PurchaseRequisitionService;
 use App\Services\RequisitionBudgetService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -105,7 +105,12 @@ class PurchaseRequisitionController extends Controller
     {
         $this->authorize('view', $purchaseRequisition);
 
-        $purchaseRequisition->load(['businessEntity', 'department', 'supplierCategory', 'requester', 'lineManager', 'items', 'attachments', 'approvals.actor', 'activityLogs.actor']);
+        $purchaseRequisition->load([
+            'businessEntity', 'department', 'supplierCategory', 'requester', 'lineManager', 'items',
+            'attachments', 'approvals.actor', 'activityLogs.actor',
+            'supplierQuotations.supplier', 'supplierQuotations.items', 'supplierQuotations.tenderResponse.tender',
+            'quotationRecommendations.selectedQuotation', 'tender.winningResponse',
+        ]);
 
         return response()->json(new PurchaseRequisitionResource($purchaseRequisition));
     }

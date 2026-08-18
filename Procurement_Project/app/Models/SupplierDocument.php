@@ -19,7 +19,18 @@ class SupplierDocument extends Model
         'verified_at' => 'datetime',
     ];
 
-    public function supplier(): BelongsTo { return $this->belongsTo(Supplier::class); }
-    public function reviewedBy(): BelongsTo { return $this->belongsTo(User::class, 'reviewed_by'); }
-    public function verifiedBy(): BelongsTo { return $this->belongsTo(User::class, 'verified_by'); }
+    public function supplier(): BelongsTo
+    {
+        return $this->belongsTo(Supplier::class);
+    }
+
+    public function reviewedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'reviewed_by');
+    }
+
+    public function verifiedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'verified_by');
+    }
 }

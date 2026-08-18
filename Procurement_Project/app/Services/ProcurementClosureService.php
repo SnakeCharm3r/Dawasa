@@ -15,6 +15,10 @@ use RuntimeException;
 
 class ProcurementClosureService
 {
+    public function __construct(
+        private readonly SupplierPerformanceService $supplierPerformanceService,
+    ) {}
+
     protected function recordApproval(ProcurementClosure $closure, string $action, User $actor, ?string $comments = null): ProcurementClosureApproval
     {
         return ProcurementClosureApproval::create([
@@ -272,6 +276,7 @@ class ProcurementClosureService
                 $closure->purchaseOrder->lockForUpdate();
                 $closure->purchaseOrder->status = PurchaseOrder::STATUS_CLOSED;
                 $closure->purchaseOrder->save();
+                $this->supplierPerformanceService->calculate($closure->purchaseOrder->supplier);
             }
 
             return $closure;
@@ -301,6 +306,7 @@ class ProcurementClosureService
                 $closure->purchaseOrder->lockForUpdate();
                 $closure->purchaseOrder->status = PurchaseOrder::STATUS_CLOSED;
                 $closure->purchaseOrder->save();
+                $this->supplierPerformanceService->calculate($closure->purchaseOrder->supplier);
             }
 
             return $closure;

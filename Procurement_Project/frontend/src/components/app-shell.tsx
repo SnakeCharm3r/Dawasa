@@ -52,7 +52,8 @@ const workflowItems: NavItem[] = [
 const managementItems: NavItem[] = [
   { label: "Budgets", href: "/budgets", icon: Boxes, roles: ["accountant", "gm", "ceo"] },
   { label: "Suppliers", href: "/suppliers", icon: Truck, roles: ["super_admin", "procurement_officer", "accountant", "gm", "auditor"] },
-  { label: "Supplier verification", href: "/supplier-verification", icon: UserCheck, roles: ["super_admin", "gm"] },
+  { label: "Supplier verification", href: "/supplier-verification", icon: UserCheck, roles: ["super_admin", "procurement_officer", "gm"] },
+  { label: "Supplier performance", href: "/supplier-performance", icon: BarChart3, roles: ["super_admin", "procurement_officer", "accountant", "gm", "auditor"] },
   { label: "Tenders & RFQs", href: "/admin-tenders", icon: Megaphone, roles: ["super_admin", "procurement_officer", "gm"] },
   { label: "Reports", href: "/reports", icon: BarChart3, roles: ["super_admin", "gm", "accountant", "procurement_officer", "auditor"] },
 ];
@@ -86,7 +87,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [user]);
 
   const pageTitle = [...workflowItems, ...managementItems, ...adminItems]
-    .find((item) => pathname === item.href)?.label ?? "Procurement";
+    .find((item) => pathname === item.href || pathname.startsWith(`${item.href}/`))?.label ?? "Procurement";
 
   if (loading || !user) {
     return <div className="app-loader"><div className="spinner" /><span>Loading workspace</span></div>;
@@ -144,7 +145,7 @@ function NavSection({ label, items, pathname, collapsed, close }: { label: strin
       {!collapsed && <p className="nav-label">{label}</p>}
       {items.map((item) => {
         const Icon = item.icon;
-        const active = pathname === item.href;
+        const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
         return (
           <Link key={item.href} href={item.href} className={active ? "nav-link active" : "nav-link"} title={collapsed ? item.label : undefined} onClick={close}>
             <Icon size={18} strokeWidth={1.8} />

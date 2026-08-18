@@ -10,11 +10,17 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Tender extends Model
 {
     public const STATUS_DRAFT = 'draft';
+
     public const STATUS_PENDING_PUBLICATION = 'pending_publication';
+
     public const STATUS_PUBLISHED = 'published';
+
     public const STATUS_CLOSED = 'closed';
+
     public const STATUS_EVALUATION = 'evaluation_in_progress';
+
     public const STATUS_AWARDED = 'awarded';
+
     public const STATUS_CANCELLED = 'cancelled';
 
     protected $guarded = [];
@@ -22,15 +28,58 @@ class Tender extends Model
     protected $casts = [
         'publication_at' => 'datetime', 'submission_deadline' => 'datetime',
         'expected_delivery_date' => 'date', 'published_at' => 'datetime',
+        'closed_at' => 'datetime', 'awarded_at' => 'datetime',
     ];
 
-    public function requisition(): BelongsTo { return $this->belongsTo(PurchaseRequisition::class, 'purchase_requisition_id'); }
-    public function category(): BelongsTo { return $this->belongsTo(SupplierCategory::class, 'supplier_category_id'); }
-    public function items(): HasMany { return $this->hasMany(TenderItem::class); }
-    public function responses(): HasMany { return $this->hasMany(TenderResponse::class); }
-    public function invitedSuppliers(): BelongsToMany { return $this->belongsToMany(Supplier::class, 'tender_invitations')->withPivot(['invited_at', 'invited_by']); }
-    public function creator(): BelongsTo { return $this->belongsTo(User::class, 'created_by'); }
-    public function publisher(): BelongsTo { return $this->belongsTo(User::class, 'published_by'); }
+    public function requisition(): BelongsTo
+    {
+        return $this->belongsTo(PurchaseRequisition::class, 'purchase_requisition_id');
+    }
+
+    public function category(): BelongsTo
+    {
+        return $this->belongsTo(SupplierCategory::class, 'supplier_category_id');
+    }
+
+    public function items(): HasMany
+    {
+        return $this->hasMany(TenderItem::class);
+    }
+
+    public function responses(): HasMany
+    {
+        return $this->hasMany(TenderResponse::class);
+    }
+
+    public function invitedSuppliers(): BelongsToMany
+    {
+        return $this->belongsToMany(Supplier::class, 'tender_invitations')->withPivot(['invited_at', 'invited_by']);
+    }
+
+    public function creator(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function publisher(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'published_by');
+    }
+
+    public function closer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'closed_by');
+    }
+
+    public function awarder(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'awarded_by');
+    }
+
+    public function winningResponse(): BelongsTo
+    {
+        return $this->belongsTo(TenderResponse::class, 'winning_tender_response_id');
+    }
 
     public function scopePubliclyOpen($query)
     {

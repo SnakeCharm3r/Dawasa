@@ -18,9 +18,14 @@ class SupplierPortalController extends Controller
     public function dashboard(Request $request): JsonResponse
     {
         $supplier = $this->supplier($request)->load(['categories:id,name,code', 'documents']);
+        $assessment = $this->compliance->assess($supplier);
+
         return response()->json(['data' => [
             'supplier' => $this->portalSafe($supplier), 'profile_completion' => $this->completion($supplier),
-            'compliance' => $this->compliance->assess($supplier),
+            'compliance' => collect($assessment)->only([
+                'status', 'required_count', 'valid_count', 'score', 'missing_documents',
+                'expired_documents', 'rejected_documents', 'expiring_documents',
+            ]),
             'response_counts' => $supplier->tenderResponses()->selectRaw('status, count(*) total')->groupBy('status')->pluck('total', 'status'),
             'expiring_document_count' => $supplier->documents->filter(fn ($document) => $document->expires_at && $document->expires_at->between(now(), now()->addDays(30)))->count(),
         ]]);
@@ -60,6 +65,7 @@ class SupplierPortalController extends Controller
         $supplier->categories()->sync($data['category_ids']);
         ActivityLog::record($request->user(), 'supplier.profile_updated_by_supplier', $supplier, [], ['portal_status' => $supplier->portal_status]);
         $this->compliance->assess($supplier);
+
         return response()->json(['message' => 'Profile updated and submitted for compliance review.', 'data' => $this->portalSafe($supplier->fresh('categories'))]);
     }
 
@@ -86,23 +92,23 @@ class SupplierPortalController extends Controller
             'status' => 'pending_verification', 'verification_status' => 'pending',
         ]);
         $this->compliance->assess($supplier);
+
         return response()->json(['message' => 'Document uploaded securely.', 'data' => $document], 201);
     }
 
     public function downloadDocument(Request $request, SupplierDocument $document)
     {
         abort_unless($document->supplier_id === $this->supplier($request)->id, 403);
+
         return Storage::disk('local')->download($document->storage_path, $document->original_name);
     }
 
     public function tenders(Request $request): JsonResponse
     {
         $supplier = $this->supplier($request);
-        $categoryIds = $supplier->categories()->pluck('supplier_categories.id');
-        abort_unless($this->compliance->canParticipate($supplier), 403, 'Your supplier compliance status currently prevents tender participation.');
         $query = Tender::query()->with('category:id,name,code')->where('status', Tender::STATUS_PUBLISHED)
-            ->where('submission_deadline', '>', now())->where(function ($q) use ($supplier, $categoryIds) {
-                $q->where(fn ($public) => $public->where('visibility', 'public')->whereIn('supplier_category_id', $categoryIds))
+            ->where('submission_deadline', '>', now())->where(function ($q) use ($supplier) {
+                $q->where('visibility', 'public')
                     ->orWhereHas('invitedSuppliers', fn ($invited) => $invited->where('suppliers.id', $supplier->id));
             });
         $page = $query->orderBy('submission_deadline')->paginate(15);
@@ -112,17 +118,17 @@ class SupplierPortalController extends Controller
             'status' => $tender->status, 'submission_deadline' => $tender->submission_deadline,
             'category' => $tender->category,
         ]);
+
         return response()->json(['data' => $page]);
     }
 
     public function showTender(Request $request, Tender $tender): JsonResponse
     {
         $supplier = $this->supplier($request);
-        abort_unless($this->compliance->canParticipate($supplier), 403, 'Your supplier compliance status currently prevents tender participation.');
-        $categoryEligible = $supplier->categories()->whereKey($tender->supplier_category_id)->exists();
         $invited = $tender->invitedSuppliers()->whereKey($supplier->id)->exists();
-        abort_unless($tender->status === Tender::STATUS_PUBLISHED && (($tender->visibility === 'public' && $categoryEligible) || $invited), 403);
+        abort_unless($tender->status === Tender::STATUS_PUBLISHED && ($tender->visibility === 'public' || $invited), 403);
         $tender->load('items:id,tender_id,item_name,specification,quantity,unit');
+
         return response()->json(['data' => [
             'id' => $tender->id, 'tender_number' => $tender->tender_number, 'title' => $tender->title,
             'public_summary' => $tender->public_summary, 'tender_type' => $tender->tender_type,
@@ -136,6 +142,7 @@ class SupplierPortalController extends Controller
     private function supplier(Request $request)
     {
         abort_unless($request->user()->hasRole('supplier'), 403);
+
         return $request->user()->supplier()->firstOrFail();
     }
 
@@ -143,6 +150,7 @@ class SupplierPortalController extends Controller
     {
         $fields = ['name', 'registration_number', 'tax_number', 'address', 'region', 'contact_person', 'phone', 'products_services'];
         $done = collect($fields)->filter(fn ($field) => filled($supplier->{$field}))->count();
+
         return (int) round(($done / count($fields)) * 80 + min($supplier->documents->count(), 4) * 5);
     }
 
