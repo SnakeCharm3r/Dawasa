@@ -172,11 +172,12 @@ function currentStage(status: string, recommendation: JsonRecord) {
   if (recStatus === "approved") return { label: "Approved for purchase", owner: "Procurement team", description: "The requisition is ready for LPO creation.", tone: "approved" };
   if (recStatus === "returned") return { label: "Sourcing revision", owner: "Procurement team", description: "Correct the proforma recommendation.", tone: "returned" };
   if (recStatus === "rejected") return { label: "Rejected", owner: "Request closed", description: "The recommendation was rejected.", tone: "rejected" };
+  if (recStatus === "withdrawn") return { label: "Selection withdrawn", owner: "Procurement team", description: "The selected supplier proforma has been withdrawn.", tone: "cancelled" };
   return stages[status] ?? { label: humanize(status), owner: "Workflow owner", description: "Review the current proforma state.", tone: "pending" };
 }
 
 function approvalState(action: string): "complete" | "pending" | "rejected" {
-  if (["rejected", "cancelled", "returned"].some((value) => action.includes(value))) return "rejected";
+  if (["rejected", "cancelled", "returned", "withdrawn"].some((value) => action.includes(value))) return "rejected";
   return "complete";
 }
 

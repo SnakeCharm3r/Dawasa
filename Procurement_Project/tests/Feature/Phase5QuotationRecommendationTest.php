@@ -6,6 +6,7 @@ use App\Models\BusinessEntity;
 use App\Models\Department;
 use App\Models\EntityBudget;
 use App\Models\FinancialYear;
+use App\Models\ProcurementApproval;
 use App\Models\PurchaseRequisition;
 use App\Models\QuotationRecommendation;
 use App\Models\Supplier;
@@ -163,9 +164,26 @@ class Phase5QuotationRecommendationTest extends TestCase
         $this->assertEquals(PurchaseRequisition::STATUS_QUOTATIONS_READY, $requisition->status);
     }
 
+    private function sendForRequesterReview(PurchaseRequisition $requisition, SupplierQuotation $quote): TestResponse
+    {
+        $lowest = $this->lowestQuote($requisition);
+        $isLowest = $quote->id === $lowest->id;
+        
+        $data = [
+            'reason_for_selection' => 'Best fit',
+        ];
+        
+        if (! $isLowest) {
+            $data['non_lowest_price_reason'] = 'Faster delivery lead time and warranty coverage.';
+        }
+        
+        return $this->actingAs($this->procurementOfficer)
+            ->postJson('/admin/supplier-quotations/'.$quote->id.'/request-approval', $data);
+    }
+
     private function createRecommendation(PurchaseRequisition $requisition, SupplierQuotation $quote, array $extra = []): TestResponse
     {
-        return $this->actingAs($this->requester)
+        return $this->actingAs($this->procurementOfficer)
             ->postJson('/admin/purchase-requisitions/'.$requisition->id.'/quotation-recommendations', array_merge([
                 'selected_quotation_id' => $quote->id,
                 'reason_for_selection' => 'Best fit',
@@ -174,8 +192,24 @@ class Phase5QuotationRecommendationTest extends TestCase
 
     private function submitRecommendation(PurchaseRequisition $requisition, QuotationRecommendation $recommendation): TestResponse
     {
-        return $this->actingAs($this->requester)
+        $response = $this->actingAs($this->requester)
             ->postJson('/admin/purchase-requisitions/'.$requisition->id.'/quotation-recommendations/'.$recommendation->id.'/submit');
+        
+        $recommendation->refresh();
+        
+        return $response;
+    }
+
+    private function lineManagerApprove(PurchaseRequisition $requisition, QuotationRecommendation $recommendation, ?string $comments = 'Approved'): TestResponse
+    {
+        $recommendation->refresh();
+        
+        $response = $this->actingAs($this->lineManager)
+            ->postJson('/admin/quotation-recommendations/'.$recommendation->id.'/line-manager-approve', ['comments' => $comments]);
+        
+        $recommendation->refresh();
+        
+        return $response;
     }
 
     /** Test 1: Procurement records at least three quotations for one approved requisition. */
@@ -195,14 +229,14 @@ class Phase5QuotationRecommendationTest extends TestCase
 
         $lowest = $this->lowestQuote($requisition);
 
-        $response = $this->createRecommendation($requisition, $lowest);
-        $response->assertStatus(201);
-        $recommendation = QuotationRecommendation::first();
+        $this->sendForRequesterReview($requisition, $lowest)->assertStatus(200);
+
+        $recommendation = QuotationRecommendation::where('purchase_requisition_id', $requisition->id)->first();
 
         $this->submitRecommendation($requisition, $recommendation)->assertStatus(200);
 
         $requisition->refresh();
-        $this->assertEquals(PurchaseRequisition::STATUS_PENDING_FINAL_APPROVAL, $requisition->status);
+        $this->assertEquals(PurchaseRequisition::STATUS_PENDING_LINE_MANAGER_APPROVAL, $requisition->status);
         $this->assertEquals(QuotationRecommendation::STATUS_SUBMITTED, $recommendation->fresh()->status);
     }
 
@@ -233,15 +267,11 @@ class Phase5QuotationRecommendationTest extends TestCase
         $this->markReady($requisition);
 
         $lowest = $this->lowestQuote($requisition);
-        $recommendation = QuotationRecommendation::create([
-            'purchase_requisition_id' => $requisition->id,
-            'selected_quotation_id' => $lowest->id,
-            'recommended_by' => $this->requester->id,
-            'reason_for_selection' => 'Lowest price',
-            'total_quoted_amount' => $lowest->total_amount,
-            'status' => QuotationRecommendation::STATUS_DRAFT,
-        ]);
+        $this->sendForRequesterReview($requisition, $lowest);
+        $recommendation = QuotationRecommendation::where('purchase_requisition_id', $requisition->id)->first();
+
         $this->submitRecommendation($requisition, $recommendation)->assertStatus(200);
+        $this->lineManagerApprove($requisition, $recommendation)->assertStatus(200);
 
         $budget = EntityBudget::where('business_entity_id', $this->entity->id)
             ->where('financial_year_id', $this->financialYear->id)
@@ -271,16 +301,11 @@ class Phase5QuotationRecommendationTest extends TestCase
         $this->markReady($requisition);
 
         $highest = $this->highestQuote($requisition);
-        $recommendation = QuotationRecommendation::create([
-            'purchase_requisition_id' => $requisition->id,
-            'selected_quotation_id' => $highest->id,
-            'recommended_by' => $this->requester->id,
-            'reason_for_selection' => 'Better quality',
-            'non_lowest_price_reason' => 'Superior warranty',
-            'total_quoted_amount' => $highest->total_amount,
-            'status' => QuotationRecommendation::STATUS_DRAFT,
-        ]);
+        $this->sendForRequesterReview($requisition, $highest);
+        $recommendation = QuotationRecommendation::where('purchase_requisition_id', $requisition->id)->first();
+
         $this->submitRecommendation($requisition, $recommendation)->assertStatus(200);
+        $this->lineManagerApprove($requisition, $recommendation)->assertStatus(200);
 
         $budget = EntityBudget::where('business_entity_id', $this->entity->id)
             ->where('financial_year_id', $this->financialYear->id)
@@ -307,16 +332,11 @@ class Phase5QuotationRecommendationTest extends TestCase
         $this->markReady($requisition);
 
         $highest = $this->highestQuote($requisition);
-        $recommendation = QuotationRecommendation::create([
-            'purchase_requisition_id' => $requisition->id,
-            'selected_quotation_id' => $highest->id,
-            'recommended_by' => $this->requester->id,
-            'reason_for_selection' => 'Better quality',
-            'non_lowest_price_reason' => 'Superior warranty',
-            'total_quoted_amount' => $highest->total_amount,
-            'status' => QuotationRecommendation::STATUS_DRAFT,
-        ]);
+        $this->sendForRequesterReview($requisition, $highest);
+        $recommendation = QuotationRecommendation::where('purchase_requisition_id', $requisition->id)->first();
+
         $this->submitRecommendation($requisition, $recommendation)->assertStatus(200);
+        $this->lineManagerApprove($requisition, $recommendation)->assertStatus(200);
 
         $this->actingAs($this->gm)
             ->postJson('/admin/quotation-recommendations/'.$recommendation->id.'/approve', ['comments' => 'Approved'])
@@ -333,15 +353,11 @@ class Phase5QuotationRecommendationTest extends TestCase
         $this->markReady($requisition);
 
         $lowest = $this->lowestQuote($requisition);
-        $recommendation = QuotationRecommendation::create([
-            'purchase_requisition_id' => $requisition->id,
-            'selected_quotation_id' => $lowest->id,
-            'recommended_by' => $this->requester->id,
-            'reason_for_selection' => 'Lowest price',
-            'total_quoted_amount' => $lowest->total_amount,
-            'status' => QuotationRecommendation::STATUS_DRAFT,
-        ]);
+        $this->sendForRequesterReview($requisition, $lowest);
+        $recommendation = QuotationRecommendation::where('purchase_requisition_id', $requisition->id)->first();
+
         $this->submitRecommendation($requisition, $recommendation)->assertStatus(200);
+        $this->lineManagerApprove($requisition, $recommendation)->assertStatus(200);
 
         $this->actingAs($this->gm)
             ->postJson('/admin/quotation-recommendations/'.$recommendation->id.'/return', ['comments' => 'Revise quotes'])
@@ -353,7 +369,7 @@ class Phase5QuotationRecommendationTest extends TestCase
 
         // Procurement marks ready again and a new recommendation can be created.
         $this->markReady($requisition);
-        $this->createRecommendation($requisition, $lowest)->assertStatus(201);
+        $this->sendForRequesterReview($requisition, $lowest)->assertStatus(200);
     }
 
     /** Test 8: Confirm Procurement never receives estimated or budget figures in any endpoint response. */
@@ -392,5 +408,41 @@ class Phase5QuotationRecommendationTest extends TestCase
         $this->assertEquals($this->procurementOfficer->id, $proforma->rejected_by);
         $this->assertNotNull($proforma->rejected_at);
         $this->assertEquals('Supplier terms are not acceptable.', $proforma->rejection_reason);
+    }
+
+    /** Test 9: Procurement can withdraw a sent proforma and the requisition returns to quotations_ready. */
+    public function test_procurement_can_withdraw_a_sent_proforma(): void
+    {
+        $requisition = $this->buildScenario();
+        $this->markReady($requisition);
+
+        $lowest = $this->lowestQuote($requisition);
+        $this->sendForRequesterReview($requisition, $lowest);
+        $recommendation = QuotationRecommendation::where('purchase_requisition_id', $requisition->id)->first();
+
+        $this->submitRecommendation($requisition, $recommendation)->assertStatus(200);
+        $this->assertEquals(PurchaseRequisition::STATUS_PENDING_LINE_MANAGER_APPROVAL, $requisition->refresh()->status);
+
+        $this->actingAs($this->procurementOfficer)
+            ->postJson('/admin/supplier-quotations/'.$lowest->id.'/withdraw', [
+                'reason' => 'Pricing no longer valid.',
+            ])
+            ->assertStatus(200);
+
+        $recommendation->refresh();
+        $requisition->refresh();
+        $lowest->refresh();
+
+        $this->assertEquals(QuotationRecommendation::STATUS_WITHDRAWN, $recommendation->status);
+        $this->assertEquals(PurchaseRequisition::STATUS_QUOTATIONS_READY, $requisition->status);
+        $this->assertEquals(SupplierQuotation::STATUS_WITHDRAWN, $lowest->status);
+
+        $this->assertDatabaseHas('procurement_approvals', [
+            'purchase_requisition_id' => $requisition->id,
+            'quotation_recommendation_id' => $recommendation->id,
+            'action' => ProcurementApproval::ACTION_WITHDRAWN,
+            'actor_id' => $this->procurementOfficer->id,
+            'comments' => 'Pricing no longer valid.',
+        ]);
     }
 }

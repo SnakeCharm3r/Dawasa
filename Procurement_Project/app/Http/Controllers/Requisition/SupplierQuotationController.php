@@ -257,7 +257,7 @@ class SupplierQuotationController extends Controller
         ]);
     }
 
-    public function withdraw(SupplierQuotation $supplierQuotation): JsonResponse
+    public function withdraw(Request $request, SupplierQuotation $supplierQuotation): JsonResponse
     {
         $this->authorize('update', $supplierQuotation);
 
@@ -267,6 +267,15 @@ class SupplierQuotationController extends Controller
             ], 422);
         }
 
+        $data = $request->validate([
+            'reason' => ['required', 'string', 'max:2000'],
+        ]);
+
+        $recommendation = $supplierQuotation->approvalRecommendation;
+        if ($recommendation) {
+            $this->recommendationService->withdraw($recommendation, $data['reason'], Auth::user());
+        }
+
         $supplierQuotation->update([
             'status' => SupplierQuotation::STATUS_WITHDRAWN,
             'withdrawn_at' => now(),
@@ -274,7 +283,7 @@ class SupplierQuotationController extends Controller
 
         return response()->json([
             'message' => 'Supplier quotation withdrawn successfully.',
-            'data' => $supplierQuotation->fresh(),
+            'data' => $supplierQuotation->fresh(['supplier', 'requisition', 'approvalRecommendation']),
         ]);
     }
 

@@ -17,6 +17,7 @@ class ProcurementApproval extends Model
     public const ACTION_REQUESTER_RETURNED = 'requester_returned';
     public const ACTION_LINE_MANAGER_RETURNED = 'line_manager_returned';
     public const ACTION_LINE_MANAGER_APPROVED = 'line_manager_approved';
+    public const ACTION_WITHDRAWN = 'withdrawn';
 
     protected $fillable = [
         'purchase_requisition_id',

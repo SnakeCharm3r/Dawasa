@@ -184,16 +184,19 @@ class Phase6PurchaseOrderTest extends TestCase
         $lowest = $this->lowestQuote($requisition);
         $highest = $this->highestQuote($requisition);
 
-        $this->actingAs($this->requester)
-            ->postJson('/admin/purchase-requisitions/'.$requisition->id.'/quotation-recommendations', [
-                'selected_quotation_id' => $lowest->id,
+        $this->actingAs($this->procurementOfficer)
+            ->postJson('/admin/supplier-quotations/'.$lowest->id.'/request-approval', [
                 'reason_for_selection' => 'Lowest price',
-            ])->assertStatus(201);
+            ])->assertStatus(200);
 
         $recommendation = QuotationRecommendation::where('purchase_requisition_id', $requisition->id)->first();
 
         $this->actingAs($this->requester)
             ->postJson('/admin/purchase-requisitions/'.$requisition->id.'/quotation-recommendations/'.$recommendation->id.'/submit')
+            ->assertStatus(200);
+
+        $this->actingAs($this->lineManager)
+            ->postJson('/admin/quotation-recommendations/'.$recommendation->id.'/line-manager-approve', ['comments' => 'Approved'])
             ->assertStatus(200);
 
         $this->actingAs($this->gm)

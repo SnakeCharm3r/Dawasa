@@ -16,6 +16,7 @@ class QuotationRecommendation extends Model
     public const STATUS_APPROVED = 'approved';
     public const STATUS_RETURNED = 'returned';
     public const STATUS_REJECTED = 'rejected';
+    public const STATUS_WITHDRAWN = 'withdrawn';
 
     protected $fillable = [
         'purchase_requisition_id',

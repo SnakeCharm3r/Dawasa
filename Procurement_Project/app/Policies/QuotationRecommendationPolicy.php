@@ -38,15 +38,15 @@ class QuotationRecommendationPolicy
 
     public function create(User $user, PurchaseRequisition $requisition): bool
     {
-        if (! $user->hasRole('requester')) {
+        if (! $user->hasAnyRole(['procurement_officer', 'super_admin'])) {
             return false;
         }
 
-        if ($user->id !== $requisition->requester_id) {
-            return false;
-        }
-
-        return $requisition->status === PurchaseRequisition::STATUS_QUOTATIONS_READY;
+        return in_array($requisition->status, [
+            PurchaseRequisition::STATUS_APPROVED_FOR_SOURCING,
+            PurchaseRequisition::STATUS_QUOTATIONS_READY,
+            PurchaseRequisition::STATUS_RETURNED_TO_SOURCING,
+        ]);
     }
 
     public function update(User $user, QuotationRecommendation $recommendation): bool
@@ -55,9 +55,12 @@ class QuotationRecommendationPolicy
             return false;
         }
 
-        return $user->id === $recommendation->recommended_by
-            && $recommendation->status === QuotationRecommendation::STATUS_DRAFT
-            && $recommendation->requisition->status === PurchaseRequisition::STATUS_QUOTATIONS_READY;
+        if ($user->id !== $recommendation->requisition->requester_id) {
+            return false;
+        }
+
+        return $recommendation->status === QuotationRecommendation::STATUS_DRAFT
+            && $recommendation->requisition->status === PurchaseRequisition::STATUS_PENDING_REQUESTER_APPROVAL;
     }
 
     public function submit(User $user, QuotationRecommendation $recommendation): bool
@@ -102,5 +105,30 @@ class QuotationRecommendationPolicy
     public function lineManagerReturn(User $user, QuotationRecommendation $recommendation): bool
     {
         return $this->lineManagerApprove($user, $recommendation);
+    }
+
+    public function approve(User $user, QuotationRecommendation $recommendation): bool
+    {
+        if (! $user->hasRole('gm')) {
+            return false;
+        }
+
+        if ($user->id === $recommendation->requisition->requester_id) {
+            return false;
+        }
+
+        return $recommendation->status === QuotationRecommendation::STATUS_SUBMITTED
+            && $recommendation->requisition->status === PurchaseRequisition::STATUS_PENDING_FINAL_APPROVAL
+            && app(EntityAccessService::class)->canAccess($user, $recommendation->requisition->business_entity_id);
+    }
+
+    public function returnToSourcing(User $user, QuotationRecommendation $recommendation): bool
+    {
+        return $this->approve($user, $recommendation);
+    }
+
+    public function reject(User $user, QuotationRecommendation $recommendation): bool
+    {
+        return $this->approve($user, $recommendation);
     }
 }

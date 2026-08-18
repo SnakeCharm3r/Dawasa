@@ -64,7 +64,6 @@ class QuotationRecommendationService
 
     public function createDraft(PurchaseRequisition $requisition, array $data, User $user): QuotationRecommendation
     {
-        $this->assertRequesterOwnsRequisition($requisition, $user);
         $this->assertEligibleRequisitionForRecommendation($requisition);
         $this->assertNoActiveRecommendation($requisition);
 
@@ -108,7 +107,7 @@ class QuotationRecommendationService
         }
 
         $requisition = $recommendation->requisition;
-        $this->assertEligibleRequisitionForRecommendation($requisition);
+        $this->assertEligibleRequisitionForSubmission($requisition);
         $quotation = $this->findValidQuotationForRequisition($requisition, $recommendation->selected_quotation_id);
         $this->ensureNonLowestReason($requisition, $quotation, [
             'selected_quotation_id' => $quotation->id,
@@ -145,14 +144,14 @@ class QuotationRecommendationService
             throw new \RuntimeException('Only submitted recommendations can be approved by the line manager.');
         }
 
-        return DB::transaction(function () use ($recommendation, $comments, $actor) {
+        DB::transaction(function () use ($recommendation, $comments, $actor) {
             $requisition = $recommendation->requisition;
             $requisition->update(['status' => PurchaseRequisition::STATUS_PENDING_FINAL_APPROVAL]);
 
             ProcurementApproval::create([
                 'purchase_requisition_id' => $requisition->id,
                 'quotation_recommendation_id' => $recommendation->id,
-                'action' => ProcurementApproval::ACTION_APPROVED,
+                'action' => ProcurementApproval::ACTION_LINE_MANAGER_APPROVED,
                 'actor_id' => $actor->id,
                 'comments' => $comments,
                 'action_at' => now(),
@@ -199,6 +198,29 @@ class QuotationRecommendationService
                 'purchase_requisition_id' => $recommendation->purchase_requisition_id,
                 'quotation_recommendation_id' => $recommendation->id,
                 'action' => ProcurementApproval::ACTION_LINE_MANAGER_RETURNED,
+                'actor_id' => $actor->id,
+                'comments' => $comments,
+                'action_at' => now(),
+            ]);
+        });
+
+        return $recommendation->fresh();
+    }
+
+    public function withdraw(QuotationRecommendation $recommendation, string $comments, User $actor): QuotationRecommendation
+    {
+        if (! in_array($recommendation->status, [QuotationRecommendation::STATUS_DRAFT, QuotationRecommendation::STATUS_SUBMITTED])) {
+            throw new \RuntimeException('Only draft or submitted recommendations can be withdrawn.');
+        }
+
+        DB::transaction(function () use ($recommendation, $comments, $actor) {
+            $recommendation->update(['status' => QuotationRecommendation::STATUS_WITHDRAWN]);
+            $recommendation->requisition->update(['status' => PurchaseRequisition::STATUS_QUOTATIONS_READY]);
+
+            ProcurementApproval::create([
+                'purchase_requisition_id' => $recommendation->purchase_requisition_id,
+                'quotation_recommendation_id' => $recommendation->id,
+                'action' => ProcurementApproval::ACTION_WITHDRAWN,
                 'actor_id' => $actor->id,
                 'comments' => $comments,
                 'action_at' => now(),
@@ -313,12 +335,23 @@ class QuotationRecommendationService
 
     private function assertEligibleRequisitionForRecommendation(PurchaseRequisition $requisition): void
     {
-        if ($requisition->status !== PurchaseRequisition::STATUS_QUOTATIONS_READY) {
+        if (! in_array($requisition->status, [
+            PurchaseRequisition::STATUS_APPROVED_FOR_SOURCING,
+            PurchaseRequisition::STATUS_QUOTATIONS_READY,
+            PurchaseRequisition::STATUS_RETURNED_TO_SOURCING,
+        ], true)) {
             throw new \RuntimeException('Recommendations can only be created for requisitions that have been marked ready for quotation recommendations.');
         }
 
         if ($this->validQuotationsForRequisition($requisition)->isEmpty()) {
             throw new \RuntimeException('The requisition has no valid supplier quotations available for recommendation.');
+        }
+    }
+
+    private function assertEligibleRequisitionForSubmission(PurchaseRequisition $requisition): void
+    {
+        if ($requisition->status !== PurchaseRequisition::STATUS_PENDING_REQUESTER_APPROVAL) {
+            throw new \RuntimeException('Recommendations can only be submitted when the requisition is pending requester approval.');
         }
     }
 
