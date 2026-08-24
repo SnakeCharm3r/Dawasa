@@ -264,6 +264,28 @@ export function useJournalData() {
     setTrades((prev) => prev.filter((t) => t.id !== id));
   }, [demoMode]);
 
+  const deleteTrades = useCallback(async (ids: string[]) => {
+    const uniqueIds = Array.from(new Set(ids)).filter(Boolean);
+    if (!uniqueIds.length) return;
+    const selected = new Set(uniqueIds);
+    if (demoMode) {
+      setTrades((current) => current.filter((trade) => !selected.has(trade.id)));
+      return;
+    }
+
+    // Keep each PostgREST URL comfortably below common proxy limits while RLS
+    // continues to restrict every deletion to the signed-in user's rows.
+    const supabase = getSupabaseClient();
+    for (let start = 0; start < uniqueIds.length; start += 100) {
+      const { error: err } = await supabase
+        .from('trades')
+        .delete()
+        .in('id', uniqueIds.slice(start, start + 100));
+      if (err) throw err;
+    }
+    setTrades((current) => current.filter((trade) => !selected.has(trade.id)));
+  }, [demoMode]);
+
   const addStrategy = useCallback(async (name: string) => {
     if (demoMode) {
       setStrategies((current) => [
@@ -378,6 +400,7 @@ export function useJournalData() {
     addTrade,
     updateTrade,
     deleteTrade,
+    deleteTrades,
     addStrategy,
     deleteStrategy,
     signInWithPassword,

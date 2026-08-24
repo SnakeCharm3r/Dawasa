@@ -39,13 +39,21 @@ export function calcTrade(trade: Trade, accountBalance: number, settings: Settin
   // Broker imports already include instrument-specific contract sizing and costs.
   // Prefer those authoritative figures over the journal's global pip settings.
   const hasAuthoritativeBrokerPnl = trade.source === 'mt5' ||
-    trade.raw_broker_metadata?.import_source === 'ctrader_account_statement_pdf';
+    trade.raw_broker_metadata?.platform === 'cTrader';
   const grossPnl = hasAuthoritativeBrokerPnl && trade.gross_profit != null
     ? trade.gross_profit
     : calculatedGrossPnl;
   const netPnl = hasAuthoritativeBrokerPnl && trade.net_profit != null
     ? trade.net_profit
     : grossPnl - (fees || 0);
+  const reportedClosingBalance = trade.raw_broker_metadata?.platform === 'cTrader' &&
+    typeof trade.raw_broker_metadata.closing_balance === 'number' &&
+    Number.isFinite(trade.raw_broker_metadata.closing_balance)
+      ? trade.raw_broker_metadata.closing_balance
+      : null;
+  const openingBalance = reportedClosingBalance == null
+    ? accountBalance
+    : reportedClosingBalance - netPnl;
 
   // Risk / reward
   let riskPips: number | null = null;
@@ -70,17 +78,17 @@ export function calcTrade(trade: Trade, accountBalance: number, settings: Settin
     }
   }
 
-  const riskPercent = riskDollars != null && accountBalance > 0
-    ? (riskDollars / accountBalance) * 100
+  const riskPercent = riskDollars != null && openingBalance > 0
+    ? (riskDollars / openingBalance) * 100
     : null;
-  const pnlPercent = accountBalance > 0 ? (netPnl / accountBalance) * 100 : null;
+  const pnlPercent = openingBalance > 0 ? (netPnl / openingBalance) * 100 : null;
 
   const rMultiple = riskDollars != null && riskDollars !== 0 ? netPnl / riskDollars : null;
 
   const winLoss = classifyWinLoss(netPnl);
   const riskFlagged = riskPercent != null && riskPercent > risk_warning_threshold;
 
-  const updatedBalance = accountBalance + netPnl;
+  const updatedBalance = reportedClosingBalance ?? accountBalance + netPnl;
 
   return {
     riskPips: riskPips != null ? round(riskPips, 1) : null,
@@ -188,7 +196,7 @@ export function computeStats(trades: TradeWithCalc[], settings: Settings): Journ
     }
   }
 
-  const currentBalance = settings.starting_balance + totalNetPnl;
+  const currentBalance = trades.at(-1)?.calc.accountBalance ?? settings.starting_balance + totalNetPnl;
 
   return {
     totalTrades,

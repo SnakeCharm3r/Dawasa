@@ -45,14 +45,42 @@ const MONTHS: Record<string, string> = {
 };
 
 function cTraderDateTime(value: unknown, utcOffset: string | null) {
-  const match = text(value).match(
+  const namedMonthMatch = text(value).match(
     /^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s+(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?$/
   );
-  if (!match) return null;
-  const [, day, monthName, year, hour, minute, second, milliseconds = '000'] = match;
-  const month = MONTHS[monthName.toLowerCase()];
-  if (!month) return null;
-  return `${year}-${month}-${day.padStart(2, '0')}T${hour}:${minute}:${second}.${milliseconds.padEnd(3, '0')}${utcOffset ?? ''}`;
+  if (namedMonthMatch) {
+    const [, day, monthName, year, hour, minute, second, milliseconds = '000'] = namedMonthMatch;
+    const month = MONTHS[monthName.toLowerCase()];
+    if (!month) return null;
+    return `${year}-${month}-${day.padStart(2, '0')}T${hour}:${minute}:${second}.${milliseconds.padEnd(3, '0')}${utcOffset ?? ''}`;
+  }
+
+  const numericMonthMatch = text(value).match(
+    /^(\d{1,2})[./-](\d{1,2})[./-](\d{4})\s+(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?$/
+  );
+  if (!numericMonthMatch) return null;
+  const [, day, month, year, hour, minute, second, milliseconds = '000'] = numericMonthMatch;
+  return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${hour}:${minute}:${second}.${milliseconds.padEnd(3, '0')}${utcOffset ?? ''}`;
+}
+
+function cTraderMetadata(rows: unknown[][]) {
+  const flattened = rows.flat().map(text).filter(Boolean);
+  const accountRow = rows.find((row) => header(row[0]) === 'account');
+  const currencyRow = rows.find((row) => header(row[0]) === 'currency');
+  const account = accountRow ? text(accountRow[1]) || null : null;
+  const currency = currencyRow ? text(currencyRow[1]).toUpperCase() || null : null;
+  const rawOffset = flattened
+    .map((value) => value.match(/UTC\s*([+-])\s*(\d{1,2})/i))
+    .find(Boolean);
+  const utcOffset = rawOffset
+    ? `${rawOffset[1]}${rawOffset[2].padStart(2, '0')}:00`
+    : null;
+  const offsetLabel = rawOffset ? `UTC${rawOffset[1]}${Number(rawOffset[2])}` : null;
+  const broker = flattened.find((value) =>
+    /(?:pepperstone|fxpro|markets|capital|securities|broker|limited|\bltd\b)/i.test(value) &&
+    !/account statement|margin level/i.test(value)
+  ) ?? null;
+  return { account, currency, broker, utcOffset, offsetLabel };
 }
 
 function compactColumn(items: PositionedPdfText[], minimumX: number, maximumX = Number.POSITIVE_INFINITY) {
@@ -66,6 +94,108 @@ function compactColumn(items: PositionedPdfText[], minimumX: number, maximumX = 
 
 function stableDealId(parts: Array<string | number>) {
   return `ctrader:${parts.map((part) => encodeURIComponent(String(part))).join(':')}`;
+}
+
+export function parseCtraderHistoryRows(
+  rows: unknown[][],
+  startNumber: number,
+  metadataRows: unknown[][] = rows
+): TradeHistoryImport | null {
+  const headerIndex = rows.findIndex((row) => {
+    const cells = row.map(header);
+    return cells.includes('symbol') && cells.includes('openingdirection') &&
+      cells.some((cell) => cell.startsWith('closingtime')) &&
+      cells.includes('entryprice') && cells.includes('closingprice') &&
+      cells.includes('closingquantity') && cells.some((cell) => cell.startsWith('net'));
+  });
+  if (headerIndex < 0) return null;
+
+  const headers = rows[headerIndex].map(header);
+  const indexOf = (name: string) => headers.findIndex((cell) => cell === name || cell.startsWith(name));
+  const symbolIndex = indexOf('symbol');
+  const directionIndex = indexOf('openingdirection');
+  const closeTimeIndex = indexOf('closingtime');
+  const entryIndex = indexOf('entryprice');
+  const exitIndex = indexOf('closingprice');
+  const quantityIndex = indexOf('closingquantity');
+  const netIndex = indexOf('net');
+  const balanceIndex = indexOf('balance');
+  const metadata = cTraderMetadata(metadataRows);
+  const signatures = new Map<string, number>();
+  const trades: ImportedTradeInput[] = [];
+
+  for (let rowIndex = headerIndex + 1; rowIndex < rows.length; rowIndex++) {
+    const row = rows[rowIndex];
+    const firstMeaningful = row.map(text).find(Boolean)?.toLowerCase() ?? '';
+    if (['positions', 'orders', 'transactions', 'summary'].includes(firstMeaningful)) break;
+
+    const symbol = text(row[symbolIndex]);
+    const side = text(row[directionIndex]).toLowerCase();
+    const closeTime = cTraderDateTime(row[closeTimeIndex], metadata.utcOffset);
+    const entryPrice = numberValue(row[entryIndex]);
+    const exitPrice = numberValue(row[exitIndex]);
+    const volume = numberValue(text(row[quantityIndex]).replace(/lots?/i, ''));
+    const netProfit = numberValue(row[netIndex]);
+    const closingBalance = balanceIndex >= 0 ? numberValue(row[balanceIndex]) : null;
+    if (!symbol || !['buy', 'sell'].includes(side) || !closeTime || entryPrice == null ||
+        exitPrice == null || volume == null || netProfit == null) continue;
+
+    const signature = [metadata.account ?? 'unknown', closeTime, symbol, side,
+      entryPrice, exitPrice, volume, netProfit].join('|');
+    const occurrence = (signatures.get(signature) ?? 0) + 1;
+    signatures.set(signature, occurrence);
+    trades.push({
+      trade_number: startNumber + trades.length,
+      date: closeTime.slice(0, 10),
+      symbol,
+      direction: side === 'sell' ? 'Short' : 'Long',
+      strategy: 'Unreviewed',
+      calc_mode: 'pips',
+      entry_price: entryPrice,
+      exit_price: exitPrice,
+      lot_size: volume,
+      fees: 0,
+      stop_loss: null,
+      target_price: null,
+      setup_notes: null,
+      lessons_learned: null,
+      source: 'manual',
+      broker_position_id: stableDealId([
+        metadata.account ?? 'unknown', closeTime, symbol, side, entryPrice,
+        exitPrice, volume, netProfit, occurrence,
+      ]),
+      broker_deal_ids: [],
+      side: side as 'buy' | 'sell',
+      volume,
+      open_time: null,
+      close_time: closeTime,
+      take_profit: null,
+      commission: 0,
+      swap: 0,
+      fee: 0,
+      gross_profit: netProfit,
+      net_profit: netProfit,
+      raw_broker_metadata: {
+        import_source: 'ctrader_account_statement_html',
+        platform: 'cTrader',
+        broker: metadata.broker,
+        account: metadata.account,
+        account_currency: metadata.currency,
+        statement_timezone: metadata.offsetLabel,
+        closing_balance: closingBalance,
+        opening_time_available: false,
+      },
+    });
+  }
+
+  if (!trades.length) {
+    throw new Error('A cTrader History table was found, but it contained no readable closed trades.');
+  }
+  return {
+    format: 'cTrader account statement',
+    trades,
+    warnings: ['cTrader account statements do not provide opening times; those fields were left empty.'],
+  };
 }
 
 export function parseCtraderStatementRows(
@@ -332,15 +462,18 @@ export function parseTradeHistoryData(
   startNumber: number
 ): TradeHistoryImport {
   const workbook = read(data, { type: 'array', cellDates: true });
+  const workbookRows = workbook.SheetNames.flatMap((sheetName) => sheetRows(workbook.Sheets[sheetName]));
   for (const sheetName of workbook.SheetNames) {
     const rows = sheetRows(workbook.Sheets[sheetName]);
     const mt5 = parseMt5Positions(rows, startNumber);
     if (mt5) return mt5;
+    const cTrader = parseCtraderHistoryRows(rows, startNumber, workbookRows);
+    if (cTrader) return cTrader;
     const journal = parseJournalSheet(rows, startNumber);
     if (journal) return journal;
   }
   throw new Error(
-    'No supported trade table was found. Upload an MT5 Positions report or a journal CSV/XLS/XLSX/ODS file.'
+    'No supported trade table was found. Upload an MT5 Positions report, a cTrader PDF/HTML statement, or a journal CSV/XLS/XLSX/ODS file.'
   );
 }
 

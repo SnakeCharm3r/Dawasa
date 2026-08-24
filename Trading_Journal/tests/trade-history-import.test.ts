@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { utils, write } from 'xlsx';
 import { calcTrade } from '../lib/calc';
-import { parseCtraderStatementRows, parseTradeHistoryData, type PositionedPdfText } from '../lib/trade-history-import';
+import {
+  parseCtraderStatementRows,
+  parseTradeHistoryData,
+  type PositionedPdfText,
+} from '../lib/trade-history-import';
 import type { Settings, Trade } from '../lib/types';
 
 function workbookBytes(rows: unknown[][]) {
@@ -136,4 +140,49 @@ test('imports cTrader PDF deals into the existing trade shape', () => {
   assert.equal(result.trades[0].source, 'manual');
   assert.equal(result.trades[0].raw_broker_metadata?.platform, 'cTrader');
   assert.equal(result.trades[0].raw_broker_metadata?.closing_balance, 10102.39);
+});
+
+test('imports cTrader HTML history including account, prices, lot size, and direction', () => {
+  const html = `<!doctype html><html><body>
+    <table><tr><td>Account Statement</td><td>FxPro Global Markets Ltd</td></tr></table>
+    <table>
+      <tr><td>Account :</td><td>8239787</td><td>24/08/2026 12:43:08.575, UTC +0</td></tr>
+      <tr><td>Currency :</td><td>USD</td></tr>
+    </table>
+    <table class="dataTable">
+      <tr><td colspan="9">History</td></tr>
+      <tr><td>Totals</td><td>Symbol</td><td>Opening direction</td><td>Closing time (UTC+0)</td><td>Entry price</td><td>Closing price</td><td>Closing Quantity</td><td>Net USD</td><td>Balance USD</td></tr>
+      <tr><td></td><td>BITCOIN</td><td>Sell</td><td>01/02/2026 13:53:15.693</td><td>78481.86</td><td>78354.25</td><td>0.01 Lots</td><td>1.28</td><td>12.83</td></tr>
+      <tr><td></td><td>GBPUSD</td><td>Buy</td><td>02/02/2026 11:38:06.125</td><td>1.37095</td><td>1.37112</td><td>0.02 Lots</td><td>0.07</td><td>12.90</td></tr>
+    </table>
+  </body></html>`;
+  const result = parseTradeHistoryData(new TextEncoder().encode(html), 50);
+
+  assert.equal(result.format, 'cTrader account statement');
+  assert.equal(result.trades.length, 2);
+  assert.equal(result.trades[0].trade_number, 50);
+  assert.equal(result.trades[0].date, '2026-02-01');
+  assert.equal(result.trades[0].direction, 'Short');
+  assert.equal(result.trades[0].entry_price, 78481.86);
+  assert.equal(result.trades[0].exit_price, 78354.25);
+  assert.equal(result.trades[0].lot_size, 0.01);
+  assert.equal(result.trades[0].net_profit, 1.28);
+  assert.equal(result.trades[0].close_time, '2026-02-01T13:53:15.693+00:00');
+  assert.equal(result.trades[0].raw_broker_metadata?.account, '8239787');
+  assert.equal(result.trades[0].raw_broker_metadata?.account_currency, 'USD');
+  assert.equal(result.trades[0].raw_broker_metadata?.broker, 'FxPro Global Markets Ltd');
+  assert.equal(result.trades[0].raw_broker_metadata?.closing_balance, 12.83);
+  assert.equal(result.trades[1].direction, 'Long');
+  assert.equal(result.trades[1].lot_size, 0.02);
+
+  const settings: Settings = {
+    id: 'settings', starting_balance: 10000, pip_size: 0.01,
+    pip_value_per_lot: 1, risk_warning_threshold: 2,
+    idle_timeout_minutes: 30, updated_at: '',
+  };
+  const calculated = calcTrade({
+    ...result.trades[0], id: 'ctrader-html', created_at: '', updated_at: '',
+  }, 10000, settings);
+  assert.equal(calculated.netPnl, 1.28);
+  assert.equal(calculated.accountBalance, 12.83);
 });

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowUpDown,
   ArrowUp,
@@ -20,6 +20,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Switch } from '@/components/ui/switch';
 import {
   Select,
   SelectContent,
@@ -63,11 +65,10 @@ const COLUMNS: { key: SortKey | 'static'; label: string; className?: string }[] 
   { key: 'pnlPercent', label: 'P&L %' },
   { key: 'accountBalance', label: 'Balance' },
   { key: 'static', label: 'W/L' },
-  { key: 'static', label: '' },
 ];
 
 export function TradeLogPage({ journal }: { journal: Journal }) {
-  const { tradesWithCalc, strategies, trades, addTrade, updateTrade, deleteTrade, settings, profile } = journal;
+  const { tradesWithCalc, strategies, trades, addTrade, updateTrade, deleteTrade, deleteTrades, settings, profile } = journal;
 
   const [search, setSearch] = useState('');
   const [filterSymbol, setFilterSymbol] = useState('all');
@@ -78,10 +79,14 @@ export function TradeLogPage({ journal }: { journal: Journal }) {
   const [dateTo, setDateTo] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('date');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [editMode, setEditMode] = useState(false);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Trade | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -128,6 +133,46 @@ export function TradeLogPage({ journal }: { journal: Journal }) {
     });
     return sorted;
   }, [tradesWithCalc, search, filterSymbol, filterStrategy, filterDirection, filterWinLoss, dateFrom, dateTo, sortKey, sortDir]);
+
+  useEffect(() => {
+    const available = new Set(trades.map((trade) => trade.id));
+    setSelectedIds((current) => {
+      const next = new Set(Array.from(current).filter((id) => available.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [trades]);
+
+  const filteredIds = useMemo(() => filtered.map((trade) => trade.id), [filtered]);
+  const allFilteredSelected = filteredIds.length > 0 && filteredIds.every((id) => selectedIds.has(id));
+  const someFilteredSelected = filteredIds.some((id) => selectedIds.has(id));
+
+  const toggleTradeSelection = (id: string, checked: boolean) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
+
+  const toggleFilteredSelection = (checked: boolean) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      for (const id of filteredIds) {
+        if (checked) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+  };
+
+  const changeEditMode = (enabled: boolean) => {
+    setEditMode(enabled);
+    if (!enabled) {
+      setSelectedIds(new Set());
+      setBulkDeleteOpen(false);
+    }
+  };
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -236,8 +281,31 @@ export function TradeLogPage({ journal }: { journal: Journal }) {
 
   const confirmDelete = async () => {
     if (!deleteId) return;
-    await deleteTrade(deleteId);
-    setDeleteId(null);
+    setDeleting(true);
+    try {
+      await deleteTrade(deleteId);
+      setSelectedIds((current) => {
+        const next = new Set(current);
+        next.delete(deleteId);
+        return next;
+      });
+      setDeleteId(null);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const confirmBulkDelete = async () => {
+    const ids = Array.from(selectedIds);
+    if (!ids.length) return;
+    setDeleting(true);
+    try {
+      await deleteTrades(ids);
+      setSelectedIds(new Set());
+      setBulkDeleteOpen(false);
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -250,6 +318,16 @@ export function TradeLogPage({ journal }: { journal: Journal }) {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {editMode && selectedIds.size > 0 && (
+            <>
+              <span className="text-xs font-medium text-muted-foreground">
+                {selectedIds.size} selected
+              </span>
+              <Button variant="destructive" size="sm" onClick={() => setBulkDeleteOpen(true)}>
+                <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Delete selected
+              </Button>
+            </>
+          )}
           <Button variant="outline" size="sm" onClick={handleImportClick} disabled={importing}>
             <Upload className="mr-1.5 h-3.5 w-3.5" /> {importing ? 'Importing…' : 'Upload history'}
           </Button>
@@ -281,7 +359,7 @@ export function TradeLogPage({ journal }: { journal: Journal }) {
         <div>
           <p className="text-sm font-medium">Import without the MT5 connector</p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Upload an Exness/MetaTrader closed-position report, a cTrader account-statement PDF, or a journal spreadsheet in XLS, XLSX, CSV, ODS, FODS, or HTML format. All imported trades are saved into the same journal history table.
+            Upload an Exness/MetaTrader closed-position report, a cTrader account-statement PDF/HTML file, or a journal spreadsheet in XLS, XLSX, CSV, ODS, FODS, or HTML format. All imported trades are saved into the same journal history table.
           </p>
         </div>
       </Card>
@@ -309,6 +387,20 @@ export function TradeLogPage({ journal }: { journal: Journal }) {
             <Label className="sr-only">To date</Label>
             <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
           </div>
+          <div className="flex h-9 items-center justify-between gap-3 rounded-md border border-input bg-background px-3">
+            <Label htmlFor="trade-edit-mode" className="cursor-pointer whitespace-nowrap text-xs font-medium">
+              Edit mode
+            </Label>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-muted-foreground">{editMode ? 'On' : 'Off'}</span>
+              <Switch
+                id="trade-edit-mode"
+                checked={editMode}
+                onCheckedChange={changeEditMode}
+                aria-label="Show trade selection and edit controls"
+              />
+            </div>
+          </div>
           {(search || filterSymbol !== 'all' || filterStrategy !== 'all' || filterDirection !== 'all' || filterWinLoss !== 'all' || dateFrom || dateTo) && (
             <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setFilterSymbol('all'); setFilterStrategy('all'); setFilterDirection('all'); setFilterWinLoss('all'); setDateFrom(''); setDateTo(''); }}>
               Clear filters
@@ -321,6 +413,15 @@ export function TradeLogPage({ journal }: { journal: Journal }) {
         <table className="w-full min-w-[1100px] text-sm">
           <thead className="sticky top-0 bg-muted/60 backdrop-blur-sm">
             <tr className="border-b border-border">
+              {editMode && (
+                <th className="w-10 px-3 py-2.5 text-left">
+                  <Checkbox
+                    checked={allFilteredSelected ? true : someFilteredSelected ? 'indeterminate' : false}
+                    onCheckedChange={(checked) => toggleFilteredSelection(checked === true)}
+                    aria-label={allFilteredSelected ? 'Deselect all filtered trades' : 'Select all filtered trades'}
+                  />
+                </th>
+              )}
               {COLUMNS.map((col, i) => {
                 const isSort = col.key !== 'static';
                 return (
@@ -342,12 +443,13 @@ export function TradeLogPage({ journal }: { journal: Journal }) {
                   </th>
                 );
               })}
+              {editMode && <th className="w-20 px-3 py-2.5"><span className="sr-only">Trade actions</span></th>}
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={COLUMNS.length} className="px-3 py-16 text-center text-sm text-muted-foreground">
+                <td colSpan={COLUMNS.length + (editMode ? 2 : 0)} className="px-3 py-16 text-center text-sm text-muted-foreground">
                   No trades match your filters. Click <span className="font-medium text-foreground">Add Trade</span> to get started.
                 </td>
               </tr>
@@ -358,6 +460,9 @@ export function TradeLogPage({ journal }: { journal: Journal }) {
                   trade={t}
                   onEdit={() => { setEditing(t); setFormOpen(true); }}
                   onDelete={() => setDeleteId(t.id)}
+                  selected={selectedIds.has(t.id)}
+                  onSelectedChange={(checked) => toggleTradeSelection(t.id, checked)}
+                  editMode={editMode}
                   threshold={settings.risk_warning_threshold}
                 />
               ))
@@ -382,8 +487,27 @@ export function TradeLogPage({ journal }: { journal: Journal }) {
             <DialogDescription>This trade will be permanently removed from your journal. This can&apos;t be undone.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteId(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={confirmDelete}>Delete</Button>
+            <Button variant="outline" onClick={() => setDeleteId(null)} disabled={deleting}>Cancel</Button>
+            <Button variant="destructive" onClick={confirmDelete} disabled={deleting}>
+              {deleting ? 'Deleting…' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={bulkDeleteOpen} onOpenChange={(open) => !deleting && setBulkDeleteOpen(open)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete {selectedIds.size} selected trades?</DialogTitle>
+            <DialogDescription>
+              These trades will be permanently removed from your journal. This can&apos;t be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkDeleteOpen(false)} disabled={deleting}>Cancel</Button>
+            <Button variant="destructive" onClick={confirmBulkDelete} disabled={deleting || selectedIds.size === 0}>
+              {deleting ? 'Deleting…' : `Delete ${selectedIds.size} trades`}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -395,11 +519,17 @@ function TradeRow({
   trade,
   onEdit,
   onDelete,
+  selected,
+  onSelectedChange,
+  editMode,
   threshold,
 }: {
   trade: TradeWithCalc;
   onEdit: () => void;
   onDelete: () => void;
+  selected: boolean;
+  onSelectedChange: (checked: boolean) => void;
+  editMode: boolean;
   threshold: number;
 }) {
   const c = trade.calc;
@@ -412,7 +542,16 @@ function TradeRow({
     : 'hover:bg-muted/40';
 
   return (
-    <tr className={cn('border-b border-border/50 transition-colors', rowBg)}>
+    <tr className={cn('border-b border-border/50 transition-colors', rowBg, editMode && selected && 'bg-primary/[0.08] hover:bg-primary/[0.12]')}>
+      {editMode && (
+        <td className="w-10 px-3 py-2.5">
+          <Checkbox
+            checked={selected}
+            onCheckedChange={(checked) => onSelectedChange(checked === true)}
+            aria-label={`Select trade ${trade.trade_number}`}
+          />
+        </td>
+      )}
       <td className="px-3 py-2.5 tabular-nums text-muted-foreground">{trade.trade_number}</td>
       <td className="whitespace-nowrap px-3 py-2.5 text-muted-foreground">{fmtDate(trade.date)}</td>
       <td className="px-3 py-2.5 font-medium">
@@ -457,16 +596,18 @@ function TradeRow({
       <td className={cn('px-3 py-2.5 tabular-nums', moneyColor(c.pnlPercent ?? 0))}>{c.pnlPercent != null ? fmtPct(c.pnlPercent, 2) : '—'}</td>
       <td className="px-3 py-2.5 tabular-nums">{fmtMoney(c.accountBalance)}</td>
       <td className="px-3 py-2.5"><WinLossBadge wl={c.winLoss} /></td>
-      <td className="px-3 py-2.5">
-        <div className="flex items-center gap-1">
-          <button onClick={onEdit} className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Edit">
-            <Pencil className="h-3.5 w-3.5" />
-          </button>
-          <button onClick={onDelete} className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive" aria-label="Delete">
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      </td>
+      {editMode && (
+        <td className="px-3 py-2.5">
+          <div className="flex items-center gap-1">
+            <button onClick={onEdit} className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Edit">
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+            <button onClick={onDelete} className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive" aria-label="Delete">
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </td>
+      )}
     </tr>
   );
 }
