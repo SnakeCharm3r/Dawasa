@@ -126,8 +126,8 @@ export function CalendarPage({ journal }: { journal: Journal }) {
       </Card>
 
       <Dialog open={!!selectedDay} onOpenChange={(o) => !o && setSelectedDay(null)}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
+        <DialogContent className="max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] grid-rows-[auto_minmax(0,1fr)] overflow-hidden sm:max-w-lg">
+          <DialogHeader className="shrink-0 pr-8">
             <DialogTitle className="flex items-center gap-2">
               <CalendarRange className="h-4 w-4 text-muted-foreground" />
               {selectedDay ? fmtDate(selectedDay.dateKey) : ''}
@@ -137,7 +137,11 @@ export function CalendarPage({ journal }: { journal: Journal }) {
             </DialogDescription>
           </DialogHeader>
           {selectedDay && (
-            <div className="space-y-2">
+            <div
+              className="min-h-0 space-y-2 overflow-y-auto overscroll-contain pr-1"
+              tabIndex={0}
+              aria-label={`Trades for ${fmtDate(selectedDay.dateKey)}`}
+            >
               {selectedDay.trades.map((t) => (
                 <div key={t.id} className="flex items-center justify-between rounded-md border border-border bg-muted/30 px-3 py-2.5">
                   <div className="min-w-0">
