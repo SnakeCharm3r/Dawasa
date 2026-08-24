@@ -8,9 +8,16 @@ export type ImportedTradeInput = Omit<
 >;
 
 export type TradeHistoryImport = {
-  format: 'MT5 position report' | 'Journal spreadsheet';
+  format: 'MT5 position report' | 'cTrader account statement' | 'Journal spreadsheet';
   trades: ImportedTradeInput[];
   warnings: string[];
+};
+
+export type PositionedPdfText = {
+  page: number;
+  x: number;
+  y: number;
+  text: string;
 };
 
 const text = (value: unknown) => String(value ?? '').trim();
@@ -30,6 +37,169 @@ function mt5DateTime(value: unknown): string | null {
   if (!match) return null;
   const [, year, month, day, hour = '00', minute = '00', second = '00'] = match;
   return `${year}-${month}-${day}T${hour}:${minute}:${second}`;
+}
+
+const MONTHS: Record<string, string> = {
+  jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
+  jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12',
+};
+
+function cTraderDateTime(value: unknown, utcOffset: string | null) {
+  const match = text(value).match(
+    /^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s+(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?$/
+  );
+  if (!match) return null;
+  const [, day, monthName, year, hour, minute, second, milliseconds = '000'] = match;
+  const month = MONTHS[monthName.toLowerCase()];
+  if (!month) return null;
+  return `${year}-${month}-${day.padStart(2, '0')}T${hour}:${minute}:${second}.${milliseconds.padEnd(3, '0')}${utcOffset ?? ''}`;
+}
+
+function compactColumn(items: PositionedPdfText[], minimumX: number, maximumX = Number.POSITIVE_INFINITY) {
+  return items
+    .filter((item) => item.x >= minimumX && item.x < maximumX)
+    .sort((a, b) => a.x - b.x)
+    .map((item) => item.text.trim())
+    .filter(Boolean)
+    .join('');
+}
+
+function stableDealId(parts: Array<string | number>) {
+  return `ctrader:${parts.map((part) => encodeURIComponent(String(part))).join(':')}`;
+}
+
+export function parseCtraderStatementRows(
+  positionedText: PositionedPdfText[],
+  startNumber: number
+): TradeHistoryImport | null {
+  const rows = new Map<string, PositionedPdfText[]>();
+  for (const item of positionedText) {
+    const key = `${item.page}:${Math.round(item.y * 2) / 2}`;
+    const row = rows.get(key) ?? [];
+    row.push(item);
+    rows.set(key, row);
+  }
+  const orderedRows = Array.from(rows.values())
+    .map((row: PositionedPdfText[]) => row.sort((a: PositionedPdfText, b: PositionedPdfText) => a.x - b.x))
+    .sort((a, b) => a[0].page - b[0].page || b[0].y - a[0].y);
+  const lines = orderedRows.map((row: PositionedPdfText[]) => row.map((item: PositionedPdfText) => item.text).join(' ').replace(/\s+/g, ' ').trim());
+  const isCtrader = lines.some((line) =>
+    line.includes('Opening Direction') && line.includes('Closing Time') && line.includes('Closing Quantity')
+  );
+  if (!isCtrader) return null;
+
+  const account = lines.map((line) => line.match(/Account:\s*(\d+)/i)?.[1]).find(Boolean) ?? null;
+  const currency = lines.map((line) => line.match(/Currency:\s*([A-Z]{3})/i)?.[1]).find(Boolean) ?? null;
+  const broker = lines.find((line) => /Pepperstone/i.test(line))?.match(/Pepperstone/i)?.[0] ?? null;
+  const rawOffset = lines.map((line) => line.match(/UTC\s*([+-]\d{1,2})/i)?.[1]).find(Boolean) ?? null;
+  const utcOffset = rawOffset
+    ? `${rawOffset.startsWith('-') ? '-' : '+'}${rawOffset.replace(/[+-]/, '').padStart(2, '0')}:00`
+    : null;
+  const offsetLabel = rawOffset ? `UTC${rawOffset}` : null;
+  const signatureOccurrences = new Map<string, number>();
+  const trades: ImportedTradeInput[] = [];
+
+  for (const row of orderedRows) {
+    const symbol = compactColumn(row, 20, 90);
+    const sideText = compactColumn(row, 90, 150).toLowerCase();
+    const closeText = compactColumn(row, 150, 270);
+    const entryPrice = numberValue(compactColumn(row, 270, 325));
+    const exitPrice = numberValue(compactColumn(row, 325, 385));
+    const volume = numberValue(compactColumn(row, 385, 465).replace(/lots?/i, ''));
+    const netProfit = numberValue(compactColumn(row, 465, 505));
+    const closingBalance = numberValue(compactColumn(row, 505));
+    const closeTime = cTraderDateTime(closeText, utcOffset);
+    if (!closeTime || !symbol || !['buy', 'sell'].includes(sideText) ||
+        entryPrice == null || exitPrice == null || volume == null || netProfit == null) {
+      continue;
+    }
+
+    const signature = [account ?? 'unknown', closeTime, symbol, sideText, entryPrice, exitPrice, volume, netProfit].join('|');
+    const occurrence = (signatureOccurrences.get(signature) ?? 0) + 1;
+    signatureOccurrences.set(signature, occurrence);
+    trades.push({
+      trade_number: startNumber + trades.length,
+      date: closeTime.slice(0, 10),
+      symbol,
+      direction: sideText === 'sell' ? 'Short' : 'Long',
+      strategy: 'Unreviewed',
+      calc_mode: 'pips',
+      entry_price: entryPrice,
+      exit_price: exitPrice,
+      lot_size: volume,
+      fees: 0,
+      stop_loss: null,
+      target_price: null,
+      setup_notes: null,
+      lessons_learned: null,
+      source: 'manual',
+      broker_position_id: stableDealId([account ?? 'unknown', closeTime, symbol, sideText, entryPrice, exitPrice, volume, netProfit, occurrence]),
+      broker_deal_ids: [],
+      side: sideText as 'buy' | 'sell',
+      volume,
+      open_time: null,
+      close_time: closeTime,
+      take_profit: null,
+      commission: 0,
+      swap: 0,
+      fee: 0,
+      gross_profit: netProfit,
+      net_profit: netProfit,
+      raw_broker_metadata: {
+        import_source: 'ctrader_account_statement_pdf',
+        platform: 'cTrader',
+        broker,
+        account,
+        account_currency: currency,
+        statement_timezone: offsetLabel,
+        closing_balance: closingBalance,
+        opening_time_available: false,
+      },
+    });
+  }
+
+  if (!trades.length) {
+    throw new Error('A cTrader Deals table was found, but it contained no readable closed trades.');
+  }
+  return {
+    format: 'cTrader account statement',
+    trades,
+    warnings: ['cTrader account statements do not provide opening times; those fields were left empty.'],
+  };
+}
+
+export async function parseTradeHistoryPdfData(
+  data: ArrayBuffer | Uint8Array,
+  startNumber: number
+): Promise<TradeHistoryImport> {
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  if (typeof window !== 'undefined') {
+    pdfjs.GlobalWorkerOptions.workerSrc = new URL('/pdf.worker.min.mjs', window.location.origin).toString();
+  }
+  const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+  const document = await pdfjs.getDocument({ data: bytes }).promise;
+  const positionedText: PositionedPdfText[] = [];
+  try {
+    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber++) {
+      const page = await document.getPage(pageNumber);
+      const content = await page.getTextContent();
+      for (const item of content.items) {
+        if (!('str' in item) || !item.str.trim()) continue;
+        positionedText.push({
+          page: pageNumber,
+          x: item.transform[4],
+          y: item.transform[5],
+          text: item.str,
+        });
+      }
+      page.cleanup();
+    }
+  } finally {
+    await document.destroy();
+  }
+  const cTrader = parseCtraderStatementRows(positionedText, startNumber);
+  if (cTrader) return cTrader;
+  throw new Error('No supported cTrader Deals table was found in this PDF.');
 }
 
 function sheetRows(sheet: WorkSheet): unknown[][] {
@@ -178,5 +348,8 @@ export async function parseTradeHistoryFile(
   file: File,
   startNumber: number
 ): Promise<TradeHistoryImport> {
-  return parseTradeHistoryData(await file.arrayBuffer(), startNumber);
+  const data = await file.arrayBuffer();
+  const signature = new TextDecoder().decode(new Uint8Array(data).slice(0, 5));
+  if (signature === '%PDF-') return parseTradeHistoryPdfData(data, startNumber);
+  return parseTradeHistoryData(data, startNumber);
 }

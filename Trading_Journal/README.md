@@ -9,7 +9,7 @@ MT5 broker account
   -> local/VPS MetaTrader 5 terminal
   -> Python read-only sync service
   -> authenticated internal Next.js REST API
-  -> Supabase/Postgres journal database
+  -> Supabase Auth, journal data, and login-activity audit data
 ```
 
 The sync service contains no order placement or position-modification methods.
@@ -23,7 +23,7 @@ password whenever the broker supports one.
 2. Set the public Supabase URL and publishable key. These identify the project;
    never put a Supabase secret/service-role key in a browser form.
 3. Set a server-only Supabase secret key and a long random internal sync token.
-4. Apply the files in `supabase/migrations` to the Supabase project.
+4. Apply all files in `supabase/migrations` to Supabase.
 5. Start the journal:
 
 ```bash
@@ -38,6 +38,25 @@ Supabase redirect allow list. The journal supports Google, email/password, and
 name/email/password account creation. The initial `/` URL always opens `/login`;
 authenticated users continue to `/journal`. Journal navigation and data are not
 rendered until a session exists.
+
+Admin access is role-based and is never tied to a hard-coded email address. To
+bootstrap the first administrator, open the user in Supabase Authentication and
+set `app_metadata.role` to `admin`, then have that user sign out and back in to
+refresh the session. Administrators receive an additional **Admin** navigation
+item while retaining the complete journal. From there, they can review user
+details, activate/deactivate accounts, and assign or remove administrator roles.
+Passwords are never read or displayed.
+
+Administrators also receive a **Login Activity** page backed by Supabase. It records
+registration, login, logout, and failed-login events with server-derived IP and
+device information. Location is explicitly approximate. Configure
+`IP_GEOLOCATION_URL` and its optional token for public-IP enrichment. Set
+`TRUST_PROXY_HEADERS=true` only when a trusted Nginx or Cloudflare proxy replaces
+incoming forwarding headers; development accepts localhost proxy headers.
+
+Journal settings, strategies, trades, entry/exit reasons, and emotional reflections
+are written directly to Supabase under the signed-in user's RLS-protected account.
+The post-import browser IndexedDB backup remains enabled.
 
 Email confirmation is temporarily bypassed by the server registration route.
 New accounts are created as confirmed, receive a success toast, and return to the
@@ -117,6 +136,9 @@ NEXT_PUBLIC_REQUIRE_EMAIL_CONFIRMATION=false
 SUPABASE_SECRET_KEY=sb_secret_...
 INTERNAL_SYNC_API_TOKEN=...
 BROKER_CREDENTIAL_ENCRYPTION_KEY=...
+TRUST_PROXY_HEADERS=true
+IP_GEOLOCATION_URL=https://approved-provider.example/v1/{ip}
+IP_GEOLOCATION_API_TOKEN=...
 ```
 
 Only the `NEXT_PUBLIC_` values may be included in browser code. The Supabase secret,

@@ -24,6 +24,8 @@ const DEFAULT_STRATEGIES = [
   'Scalp', 'Swing', 'News Play', 'Unreviewed', 'Other',
 ];
 
+const useSupabaseEdgeAuth = process.env.NEXT_PUBLIC_USE_SUPABASE_EDGE_API === 'true';
+
 export function useJournalData() {
   const demoMode = !isSupabaseConfigured();
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -40,9 +42,20 @@ export function useJournalData() {
     const supabase = getSupabaseClient();
     let active = true;
     supabase.auth.getSession()
-      .then(({ data }) => {
+      .then(async ({ data, error: sessionError }) => {
+        if (sessionError) throw sessionError;
+        let session = data.session;
+
+        // Roles live in app_metadata. Refresh restored sessions so role changes
+        // made by an administrator are reflected in navigation immediately.
+        if (session) {
+          const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+          if (refreshError) throw refreshError;
+          session = refreshed.session ?? session;
+        }
+
         if (active) {
-          setUser(data.session?.user ?? null);
+          setUser(session?.user ?? null);
           setAuthReady(true);
         }
       })
@@ -53,9 +66,24 @@ export function useJournalData() {
           setLoading(false);
         }
       });
-    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user ?? null);
       setAuthReady(true);
+      if (event === 'SIGNED_IN' && session) {
+        const fingerprint = `${session.user.id}:${session.user.last_sign_in_at ?? ''}`;
+        const key = 'trading-journal:last-oauth-activity';
+        if (sessionStorage.getItem(key) !== fingerprint) {
+          sessionStorage.setItem(key, fingerprint);
+          if (useSupabaseEdgeAuth) {
+            void invokeJournalApi({ action: 'record_login' });
+          } else if (session.user.app_metadata?.provider !== 'email') {
+            void fetch('/api/auth/login-activity', {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${session.access_token}` },
+            });
+          }
+        }
+      }
     });
     return () => {
       active = false;
@@ -84,7 +112,7 @@ export function useJournalData() {
       const supabase = getSupabaseClient();
       const { data: profileData, error: profileError } = await supabase
         .from('profiles')
-        .select('id,email,username,display_name,avatar_url,created_at,updated_at')
+        .select('id,email,username,display_name,avatar_url,country,is_active,created_at,updated_at')
         .maybeSingle();
       if (profileError) throw profileError;
       setProfile((profileData as Profile | null) ?? null);
@@ -266,28 +294,46 @@ export function useJournalData() {
   }, [demoMode, refreshStrategies]);
 
   const signInWithPassword = useCallback(async (email: string, password: string) => {
-    const { error: signInError } = await getSupabaseClient().auth.signInWithPassword({ email, password });
-    if (signInError) throw signInError;
+    if (useSupabaseEdgeAuth) {
+      const { error: signInError } = await getSupabaseClient().auth.signInWithPassword({ email, password });
+      if (signInError) {
+        void invokeJournalApi({
+          action: 'record_failed_login',
+          email,
+          failure_reason: signInError.code ?? 'invalid_credentials',
+        });
+        throw signInError;
+      }
+      return;
+    }
+    const response = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const payload = await response.json() as { error?: string; access_token?: string; refresh_token?: string };
+    if (!response.ok || !payload.access_token || !payload.refresh_token) {
+      throw new Error(payload.error ?? 'Invalid email or password.');
+    }
+    const { error: sessionError } = await getSupabaseClient().auth.setSession({
+      access_token: payload.access_token,
+      refresh_token: payload.refresh_token,
+    });
+    if (sessionError) throw sessionError;
   }, []);
 
-  const signUpWithPassword = useCallback(async (name: string, email: string, password: string) => {
-    const requireEmailConfirmation = process.env.NEXT_PUBLIC_REQUIRE_EMAIL_CONFIRMATION === 'true';
-
-    // Keep the normal confirmation flow ready for when email verification is restored.
-    if (requireEmailConfirmation) {
-      const { data, error: signUpError } = await getSupabaseClient().auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: getAuthRedirectUrl(),
-          data: { full_name: name.trim() },
-        },
-      });
-      if (signUpError) throw signUpError;
-      return { requiresEmailConfirmation: !data.session };
+  const signUpWithPassword = useCallback(async (name: string, country: string, email: string, password: string) => {
+    if (useSupabaseEdgeAuth) {
+      await invokeJournalApi({ action: 'register', name, country, email, password });
+      return { requiresEmailConfirmation: false };
     }
-
-    await invokeJournalApi({ action: 'register', name, email, password });
+    const response = await fetch('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, country, email, password }),
+    });
+    const payload = await response.json() as { error?: string };
+    if (!response.ok) throw new Error(payload.error ?? 'Could not create your account.');
     return { requiresEmailConfirmation: false };
   }, []);
 
@@ -300,7 +346,19 @@ export function useJournalData() {
   }, []);
 
   const signOut = useCallback(async () => {
-    const { error: signOutError } = await getSupabaseClient().auth.signOut({ scope: 'local' });
+    const supabase = getSupabaseClient();
+    const { data } = await supabase.auth.getSession();
+    if (data.session) {
+      if (useSupabaseEdgeAuth) {
+        await invokeJournalApi({ action: 'record_logout' });
+      } else {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${data.session.access_token}` },
+        });
+      }
+    }
+    const { error: signOutError } = await supabase.auth.signOut({ scope: 'local' });
     if (signOutError) throw signOutError;
   }, []);
 

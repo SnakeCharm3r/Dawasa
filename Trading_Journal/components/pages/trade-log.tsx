@@ -96,6 +96,9 @@ export function TradeLogPage({ journal }: { journal: Journal }) {
         (t) =>
           (t.setup_notes ?? '').toLowerCase().includes(q) ||
           (t.lessons_learned ?? '').toLowerCase().includes(q) ||
+          (t.exit_reason ?? '').toLowerCase().includes(q) ||
+          (t.emotion_during_trade ?? '').toLowerCase().includes(q) ||
+          (t.emotions ?? []).some((emotion) => emotion.toLowerCase().includes(q)) ||
           t.symbol.toLowerCase().includes(q)
       );
     }
@@ -278,7 +281,7 @@ export function TradeLogPage({ journal }: { journal: Journal }) {
         <div>
           <p className="text-sm font-medium">Import without the MT5 connector</p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Upload an MT5 closed-position report or journal spreadsheet in XLS, XLSX, CSV, ODS, FODS, or HTML format. HTML-based MT5 reports saved with a PDF extension are also detected. Linux users should export an ODS spreadsheet; ODP presentation files will only work when they contain a readable table.
+            Upload an Exness/MetaTrader closed-position report, a cTrader account-statement PDF, or a journal spreadsheet in XLS, XLSX, CSV, ODS, FODS, or HTML format. All imported trades are saved into the same journal history table.
           </p>
         </div>
       </Card>
@@ -421,7 +424,21 @@ function TradeRow({
           {trade.direction === 'Long' ? 'L' : 'S'}
         </span>
       </td>
-      <td className="px-3 py-2.5 text-muted-foreground">{trade.strategy}</td>
+      <td className="px-3 py-2.5 text-muted-foreground">
+        <div>{trade.strategy}</div>
+        {!!trade.emotions?.length && (
+          <div className="mt-1 flex max-w-40 flex-wrap gap-1">
+            {trade.emotions.slice(0, 3).map((emotion) => (
+              <Badge key={emotion} variant="outline" className="px-1.5 py-0 text-[9px] font-normal">
+                {emotion}
+              </Badge>
+            ))}
+            {trade.emotions.length > 3 && (
+              <span className="text-[9px] text-muted-foreground">+{trade.emotions.length - 3}</span>
+            )}
+          </div>
+        )}
+      </td>
       <td className="px-3 py-2.5 tabular-nums">{fmtPrice(trade.entry_price)}</td>
       <td className="px-3 py-2.5 tabular-nums">{fmtPrice(trade.exit_price)}</td>
       <td className="px-3 py-2.5 tabular-nums text-muted-foreground">{fmtMoney(c.riskDollars)}</td>

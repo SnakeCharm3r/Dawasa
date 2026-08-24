@@ -1,3 +1,5 @@
+import { extractRequestIp } from './request-context';
+
 const WINDOW_MS = 15 * 60_000;
 const MAX_ATTEMPTS = 5;
 
@@ -22,6 +24,5 @@ export function takeRegistrationAttempt(key: string, now = Date.now()) {
 }
 
 export function registrationClientKey(headers: Headers): string {
-  const forwarded = headers.get('x-forwarded-for')?.split(',')[0]?.trim();
-  return forwarded || headers.get('x-real-ip')?.trim() || 'unknown-client';
+  return extractRequestIp({ headers }) ?? 'unknown-client';
 }

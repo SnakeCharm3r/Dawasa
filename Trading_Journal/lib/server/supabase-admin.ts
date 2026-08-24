@@ -1,7 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 let adminClient: SupabaseClient | undefined;
-let authClient: SupabaseClient | undefined;
 
 function getSupabaseUrl() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -18,12 +17,11 @@ function getPublishableKey() {
 }
 
 export function getServerAuthClient() {
-  if (!authClient) {
-    authClient = createClient(getSupabaseUrl(), getPublishableKey(), {
-      auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
-    });
-  }
-  return authClient;
+  // Auth clients hold session state in memory even when persistence is disabled.
+  // Use one per request to prevent concurrent server logins sharing state.
+  return createClient(getSupabaseUrl(), getPublishableKey(), {
+    auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+  });
 }
 
 export function getSupabaseAdminClient() {

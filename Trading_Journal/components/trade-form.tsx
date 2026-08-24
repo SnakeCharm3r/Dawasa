@@ -22,6 +22,14 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { validateStopLoss, nextTradeNumber } from '@/lib/calc';
+import {
+  GENERIC_TRADE_EMOTIONS,
+  MAX_TRADE_EMOTIONS,
+  MAX_TRADE_EMOTION_LENGTH,
+  normalizeTradeEmotions,
+  toggleTradeEmotion,
+} from '@/lib/trade-emotions';
+import { cn } from '@/lib/utils';
 import type { CalcMode, Direction, Strategy, Trade } from '@/lib/types';
 
 export interface TradeFormValues {
@@ -39,6 +47,9 @@ export interface TradeFormValues {
   target_price: number | null;
   setup_notes: string | null;
   lessons_learned: string | null;
+  exit_reason: string | null;
+  emotion_during_trade: string | null;
+  emotions: string[];
 }
 
 interface Props {
@@ -65,12 +76,16 @@ const EMPTY: TradeFormValues = {
   target_price: null,
   setup_notes: null,
   lessons_learned: null,
+  exit_reason: null,
+  emotion_during_trade: null,
+  emotions: [],
 };
 
 export function TradeForm({ open, onOpenChange, strategies, trades, editing, onSave }: Props) {
   const [values, setValues] = useState<TradeFormValues>(EMPTY);
   const [saving, setSaving] = useState(false);
   const [stopWarn, setStopWarn] = useState(false);
+  const [customEmotion, setCustomEmotion] = useState('');
 
   useEffect(() => {
     if (editing) {
@@ -89,11 +104,15 @@ export function TradeForm({ open, onOpenChange, strategies, trades, editing, onS
         target_price: editing.target_price,
         setup_notes: editing.setup_notes,
         lessons_learned: editing.lessons_learned,
+        exit_reason: editing.exit_reason ?? null,
+        emotion_during_trade: editing.emotion_during_trade ?? null,
+        emotions: editing.emotions ?? [],
       });
     } else {
       setValues({ ...EMPTY, trade_number: nextTradeNumber(trades), date: new Date().toISOString().slice(0, 10) });
     }
     setStopWarn(false);
+    setCustomEmotion('');
   }, [editing, trades, open]);
 
   useEffect(() => {
@@ -123,6 +142,7 @@ export function TradeForm({ open, onOpenChange, strategies, trades, editing, onS
       exit_price: Number(values.exit_price) || 0,
       lot_size: Number(values.lot_size) || 0,
       fees: Number(values.fees) || 0,
+      emotions: normalizeTradeEmotions(values.emotions),
     };
     setSaving(true);
     try {
@@ -131,6 +151,21 @@ export function TradeForm({ open, onOpenChange, strategies, trades, editing, onS
     } finally {
       setSaving(false);
     }
+  };
+
+  const emotionOptions = [...GENERIC_TRADE_EMOTIONS, ...values.emotions].filter(
+    (emotion, index, all) =>
+      all.findIndex((value) => value.toLocaleLowerCase() === emotion.toLocaleLowerCase()) === index
+  );
+  const addCustomEmotion = () => {
+    if (!customEmotion.trim()) return;
+    const alreadySelected = values.emotions.some(
+      (emotion) => emotion.toLocaleLowerCase() === customEmotion.trim().toLocaleLowerCase()
+    );
+    if (!alreadySelected) {
+      update('emotions', normalizeTradeEmotions([...values.emotions, customEmotion]));
+    }
+    setCustomEmotion('');
   };
 
   return (
@@ -242,12 +277,88 @@ export function TradeForm({ open, onOpenChange, strategies, trades, editing, onS
           </Field>
 
           <div className="sm:col-span-2 lg:col-span-3">
-            <Field label="Setup Notes">
+            <Field label="Emotions Involved in This Trade">
+              <div className="space-y-3 rounded-md border border-border/70 bg-muted/20 p-3">
+                <div className="flex flex-wrap gap-2">
+                  {emotionOptions.map((emotion) => {
+                    const selected = values.emotions.some(
+                      (value) => value.toLocaleLowerCase() === emotion.toLocaleLowerCase()
+                    );
+                    return (
+                      <button
+                        key={emotion}
+                        type="button"
+                        aria-pressed={selected}
+                        onClick={() => update('emotions', toggleTradeEmotion(values.emotions, emotion))}
+                        className={cn(
+                          'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+                          selected
+                            ? 'border-primary bg-primary text-primary-foreground'
+                            : 'border-border bg-background text-muted-foreground hover:border-primary/50 hover:text-foreground'
+                        )}
+                      >
+                        {emotion}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    value={customEmotion}
+                    maxLength={MAX_TRADE_EMOTION_LENGTH}
+                    onChange={(event) => setCustomEmotion(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        addCustomEmotion();
+                      }
+                    }}
+                    placeholder="Add another emotion"
+                    aria-label="Custom trade emotion"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={addCustomEmotion}
+                    disabled={!customEmotion.trim() || values.emotions.length >= MAX_TRADE_EMOTIONS}
+                  >
+                    Add
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Select every emotion that influenced this trade ({values.emotions.length}/{MAX_TRADE_EMOTIONS}).
+                </p>
+              </div>
+            </Field>
+          </div>
+
+          <div className="sm:col-span-2 lg:col-span-3">
+            <Field label="Why I Entered">
               <Textarea
-                rows={2}
+                rows={3}
                 value={values.setup_notes ?? ''}
                 onChange={(e) => update('setup_notes', e.target.value || null)}
-                placeholder="What was the setup? Why did you enter?"
+                placeholder="Describe the setup, confirmation, and reason for entering."
+              />
+            </Field>
+          </div>
+          <div className="sm:col-span-2 lg:col-span-3">
+            <Field label="Why I Exited">
+              <Textarea
+                rows={3}
+                value={values.exit_reason ?? ''}
+                onChange={(e) => update('exit_reason', e.target.value || null)}
+                placeholder="Why did you close the trade? Target, stop, signal change, or discretion?"
+              />
+            </Field>
+          </div>
+          <div className="sm:col-span-2 lg:col-span-3">
+            <Field label="How I Felt During the Trade">
+              <Textarea
+                rows={3}
+                value={values.emotion_during_trade ?? ''}
+                onChange={(e) => update('emotion_during_trade', e.target.value || null)}
+                placeholder="How did your emotions change while the position was open?"
               />
             </Field>
           </div>

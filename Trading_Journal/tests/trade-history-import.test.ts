@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { utils, write } from 'xlsx';
 import { calcTrade } from '../lib/calc';
-import { parseTradeHistoryData } from '../lib/trade-history-import';
+import { parseCtraderStatementRows, parseTradeHistoryData, type PositionedPdfText } from '../lib/trade-history-import';
 import type { Settings, Trade } from '../lib/types';
 
 function workbookBytes(rows: unknown[][]) {
@@ -107,4 +107,33 @@ test('broker-imported trades use authoritative MT5 profit in journal calculation
   assert.equal(calculated.grossPnl, 159.06);
   assert.equal(calculated.netPnl, 157.31);
   assert.equal(calculated.accountBalance, 10157.31);
+});
+
+function pdfRow(page: number, y: number, cells: Array<[number, string]>): PositionedPdfText[] {
+  return cells.map(([x, text]) => ({ page, x, y, text }));
+}
+
+test('imports cTrader PDF deals into the existing trade shape', () => {
+  const rows = [
+    ...pdfRow(1, 700, [[30, 'Account:'], [83, '5286933'], [470, 'Pepperstone'], [520, 'UTC+3']]),
+    ...pdfRow(1, 680, [[30, 'Currency:'], [83, 'EUR']]),
+    ...pdfRow(1, 565, [[33, 'Symbol'], [74, 'Opening Direction'], [164, 'Closing Time (UTC+3)'], [271, 'Entry price'], [325, 'Closing price'], [387, 'Closing Quantity']]),
+    ...pdfRow(1, 546, [[31, 'XAUUSD'], [106, 'Sell'], [159, '26 Jun 2026 10:38:42.655'], [279, '4038.02'], [337, '4034.86'], [412, '1'], [420, 'Lots'], [471, '277.55'], [524, '10'], [537, '102.39']]),
+  ];
+  const result = parseCtraderStatementRows(rows, 20);
+  assert.ok(result);
+  assert.equal(result.format, 'cTrader account statement');
+  assert.equal(result.trades.length, 1);
+  assert.equal(result.trades[0].trade_number, 20);
+  assert.equal(result.trades[0].date, '2026-06-26');
+  assert.equal(result.trades[0].direction, 'Short');
+  assert.equal(result.trades[0].entry_price, 4038.02);
+  assert.equal(result.trades[0].exit_price, 4034.86);
+  assert.equal(result.trades[0].lot_size, 1);
+  assert.equal(result.trades[0].net_profit, 277.55);
+  assert.equal(result.trades[0].close_time, '2026-06-26T10:38:42.655+03:00');
+  assert.equal(result.trades[0].open_time, null);
+  assert.equal(result.trades[0].source, 'manual');
+  assert.equal(result.trades[0].raw_broker_metadata?.platform, 'cTrader');
+  assert.equal(result.trades[0].raw_broker_metadata?.closing_balance, 10102.39);
 });

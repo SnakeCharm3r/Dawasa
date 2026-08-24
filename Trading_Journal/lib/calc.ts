@@ -38,10 +38,12 @@ export function calcTrade(trade: Trade, accountBalance: number, settings: Settin
     : diff * lot_size;
   // Broker imports already include instrument-specific contract sizing and costs.
   // Prefer those authoritative figures over the journal's global pip settings.
-  const grossPnl = trade.source === 'mt5' && trade.gross_profit != null
+  const hasAuthoritativeBrokerPnl = trade.source === 'mt5' ||
+    trade.raw_broker_metadata?.import_source === 'ctrader_account_statement_pdf';
+  const grossPnl = hasAuthoritativeBrokerPnl && trade.gross_profit != null
     ? trade.gross_profit
     : calculatedGrossPnl;
-  const netPnl = trade.source === 'mt5' && trade.net_profit != null
+  const netPnl = hasAuthoritativeBrokerPnl && trade.net_profit != null
     ? trade.net_profit
     : grossPnl - (fees || 0);
 

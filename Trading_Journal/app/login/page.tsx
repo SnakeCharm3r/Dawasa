@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { LineChart, ShieldCheck } from 'lucide-react';
+import { LineChart } from 'lucide-react';
 import { AuthPanel } from '@/components/auth-panel';
 import { Card } from '@/components/ui/card';
 import { useJournalData } from '@/hooks/use-journal-data';
@@ -49,14 +49,11 @@ export default function LoginPage() {
             <LineChart className="h-6 w-6" />
           </div>
           <h1 className="max-w-lg text-4xl font-semibold tracking-[-0.04em] sm:text-5xl lg:text-6xl">
-            Trading Journal <span className="text-emerald-400">application</span>
+            Trading Journal
           </h1>
           <p className="mt-5 max-w-md text-sm leading-6 text-emerald-50/60 sm:text-base">
             A focused workspace for reviewing decisions, measuring performance, and building consistency.
           </p>
-          <div className="mt-8 flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-emerald-200/65">
-            <ShieldCheck className="h-4 w-4" /> Private by design
-          </div>
         </div>
       </section>
 

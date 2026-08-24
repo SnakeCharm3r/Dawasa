@@ -31,6 +31,10 @@ Upload the **contents** of `deployment/infinityfree/htdocs/` into the remote
 InfinityFree `htdocs` directory. You can instead extract
 `deployment/infinityfree/milanolodge-htdocs.zip` there.
 
+No InfinityFree MySQL database or PHP API is used. Apply the repository's
+`supabase/migrations` to the Supabase project before publishing the static build.
+All journal inputs are stored in Supabase under row-level security.
+
 Each successful manual report import also writes the latest JSON snapshot into
 the browser's IndexedDB and downloads a dated `trading-journal-backup-*.json`
 file. Browsers cannot silently write arbitrary server-side files; the download

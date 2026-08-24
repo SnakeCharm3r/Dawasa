@@ -71,7 +71,19 @@ async function requireUser(request: Request, admin: SupabaseClient): Promise<Use
   const token = bearerToken(request);
   const { data, error } = await admin.auth.getUser(token);
   if (error || !data.user) throw new HttpError(401, 'Your session expired. Sign in again.');
+  const { data: profile, error: profileError } = await admin
+    .from('profiles')
+    .select('is_active')
+    .eq('id', data.user.id)
+    .maybeSingle();
+  if (profileError || !profile?.is_active) throw new HttpError(401, 'This account is inactive.');
   return data.user;
+}
+
+async function requireAdminUser(request: Request, admin: SupabaseClient) {
+  const user = await requireUser(request, admin);
+  if (user.app_metadata?.role !== 'admin') throw new HttpError(403, 'Administrator access is required.');
+  return user;
 }
 
 async function sha256Hex(value: string) {
@@ -118,11 +130,115 @@ function publicAccount(account: Record<string, unknown>) {
   return safe;
 }
 
+function requestIp(request: Request) {
+  return request.headers.get('cf-connecting-ip')
+    || request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+    || request.headers.get('x-real-ip')
+    || null;
+}
+
+function networkLabel(ip: string | null) {
+  if (!ip) return { country: null, source: null };
+  if (ip === '127.0.0.1' || ip === '::1') return { country: 'Local Network', source: 'local' };
+  if (/^10\./u.test(ip) || /^192\.168\./u.test(ip) || /^172\.(1[6-9]|2\d|3[01])\./u.test(ip)) {
+    return { country: 'Internal Network', source: 'internal' };
+  }
+  return { country: null, source: null };
+}
+
+function deviceContext(userAgent: string | null) {
+  const ua = userAgent ?? '';
+  const browser = /Edg\//iu.test(ua) ? 'Microsoft Edge'
+    : /Chrome\//iu.test(ua) ? 'Chrome'
+      : /Firefox\//iu.test(ua) ? 'Firefox'
+        : /Safari\//iu.test(ua) ? 'Safari' : 'Unknown';
+  const operatingSystem = /Windows NT/iu.test(ua) ? 'Windows'
+    : /Android/iu.test(ua) ? 'Android'
+      : /iPhone|iPad|iPod/iu.test(ua) ? 'iOS'
+        : /Mac OS X/iu.test(ua) ? 'macOS'
+          : /Linux/iu.test(ua) ? 'Linux' : 'Unknown';
+  const deviceType = /bot|crawler|spider/iu.test(ua) ? 'Bot'
+    : /iPad|Tablet/iu.test(ua) ? 'Tablet'
+      : /Mobile|iPhone|Android/iu.test(ua) ? 'Mobile'
+        : ua ? 'Desktop' : 'Unknown';
+  return { browser, operatingSystem, deviceType };
+}
+
+async function recordActivity(
+  request: Request,
+  admin: SupabaseClient,
+  input: {
+    eventType: 'registered' | 'login' | 'logout' | 'failed_login';
+    user?: User | null;
+    attemptedEmail?: string | null;
+    success: boolean;
+    failureReason?: string | null;
+  },
+) {
+  const ipAddress = requestIp(request);
+  const network = networkLabel(ipAddress);
+  const userAgent = request.headers.get('user-agent');
+  const device = deviceContext(userAgent);
+  const now = new Date().toISOString();
+  const { error } = await admin.from('login_activity_logs').insert({
+    id: crypto.randomUUID(),
+    user_id: input.user?.id ?? null,
+    attempted_email: input.attemptedEmail?.trim().toLowerCase() ?? input.user?.email?.toLowerCase() ?? null,
+    event_type: input.eventType,
+    ip_address: ipAddress,
+    country: network.country,
+    location_source: network.source,
+    user_agent: userAgent,
+    browser: device.browser,
+    operating_system: device.operatingSystem,
+    device_type: device.deviceType,
+    success: input.success,
+    failure_reason: input.failureReason?.slice(0, 255) ?? null,
+    created_at: now,
+    updated_at: now,
+  });
+  if (error) throw error;
+
+  if (input.user && input.eventType === 'registered') {
+    const { error: profileError } = await admin.from('profiles').update({
+      registered_ip: ipAddress,
+      registered_country: network.country,
+      registered_at: now,
+      updated_at: now,
+    }).eq('id', input.user.id);
+    if (profileError) throw profileError;
+  }
+}
+
 const registrationSchema = z.object({
   action: z.literal('register'),
   name: z.string().trim().min(2).max(120),
+  country: z.string().trim().min(2).max(100),
   email: z.string().trim().email().max(320),
   password: z.string().min(8).max(256),
+}).strict();
+
+const failedLoginSchema = z.object({
+  action: z.literal('record_failed_login'),
+  email: z.string().trim().email().max(320),
+  failure_reason: z.string().max(255).optional(),
+}).strict();
+
+const adminUpdateSchema = z.object({
+  action: z.literal('admin_update_user'),
+  user_id: z.string().uuid(),
+  is_active: z.boolean().optional(),
+  role: z.enum(['admin', 'user']).optional(),
+}).strict().refine((value) => value.is_active !== undefined || value.role !== undefined);
+
+const adminActivitySchema = z.object({
+  action: z.literal('admin_list_activity'),
+  search: z.string().trim().max(200).optional(),
+  event_type: z.enum(['registered', 'login', 'logout', 'failed_login']).optional(),
+  date_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).optional(),
+  date_to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).optional(),
+  page: z.number().int().min(1).default(1),
+  page_size: z.number().int().min(10).max(100).default(25),
 }).strict();
 
 const accountInputSchema = z.object({
@@ -244,11 +360,11 @@ async function registration(request: Request, admin: SupabaseClient, body: unkno
   if (!result?.allowed) {
     throw new HttpError(429, 'Too many account creation attempts. Please try again later.', result?.retry_after_seconds ?? 900);
   }
-  const { error } = await admin.auth.admin.createUser({
+  const { data, error } = await admin.auth.admin.createUser({
     email: input.email,
     password: input.password,
     email_confirm: true,
-    user_metadata: { full_name: input.name },
+    user_metadata: { full_name: input.name, country: input.country },
   });
   if (error) {
     const duplicate = error.message.toLowerCase().includes('already') || error.status === 422;
@@ -256,12 +372,40 @@ async function registration(request: Request, admin: SupabaseClient, body: unkno
       ? 'An account with this email already exists. Sign in instead.'
       : 'Could not create your account.');
   }
+  if (!data.user) throw new HttpError(500, 'Could not create your account.');
+  try {
+    await recordActivity(request, admin, {
+      eventType: 'registered', user: data.user, attemptedEmail: input.email, success: true,
+    });
+  } catch (activityError) {
+    await admin.auth.admin.deleteUser(data.user.id);
+    throw activityError;
+  }
   return { body: { created: true }, status: 201 };
+}
+
+async function failedLogin(request: Request, admin: SupabaseClient, body: unknown) {
+  const input = failedLoginSchema.parse(body);
+  const { data: profile } = await admin.from('profiles').select('id,email').ilike('email', input.email).maybeSingle();
+  await recordActivity(request, admin, {
+    eventType: 'failed_login',
+    user: profile ? ({ id: profile.id, email: profile.email } as User) : null,
+    attemptedEmail: input.email,
+    success: false,
+    failureReason: input.failure_reason ?? 'invalid_credentials',
+  });
+  return { body: { recorded: true }, status: 202 };
 }
 
 async function userAction(request: Request, admin: SupabaseClient, body: Record<string, unknown>) {
   const user = await requireUser(request, admin);
   switch (body.action) {
+    case 'record_login':
+      await recordActivity(request, admin, { eventType: 'login', user, success: true });
+      return { body: { recorded: true }, status: 201 };
+    case 'record_logout':
+      await recordActivity(request, admin, { eventType: 'logout', user, success: true });
+      return { body: { recorded: true }, status: 201 };
     case 'list_accounts': {
       const { data, error } = await admin.from('trading_accounts').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
       if (error) throw error;
@@ -343,6 +487,119 @@ async function userAction(request: Request, admin: SupabaseClient, body: Record<
   }
 }
 
+async function adminAction(request: Request, admin: SupabaseClient, body: Record<string, unknown>) {
+  const currentAdmin = await requireAdminUser(request, admin);
+
+  if (body.action === 'admin_list_users') {
+    const authUsers: User[] = [];
+    for (let page = 1; ; page += 1) {
+      const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 1000 });
+      if (error) throw error;
+      authUsers.push(...data.users);
+      if (data.users.length < 1000) break;
+    }
+    const ids = authUsers.map((user) => user.id);
+    const profiles: Array<Record<string, unknown>> = [];
+    for (let start = 0; start < ids.length; start += 200) {
+      const { data, error } = await admin.from('profiles')
+        .select('id,email,username,display_name,country,is_active,created_at')
+        .in('id', ids.slice(start, start + 200));
+      if (error) throw error;
+      profiles.push(...(data ?? []));
+    }
+    const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
+    return { body: { users: authUsers.map((user) => {
+      const profile = profileById.get(user.id);
+      return {
+        id: user.id,
+        email: user.email ?? profile?.email ?? null,
+        name: profile?.display_name ?? profile?.username ?? user.user_metadata?.full_name ?? null,
+        country: profile?.country ?? user.user_metadata?.country ?? null,
+        provider: user.app_metadata?.provider ?? 'email',
+        created_at: user.created_at,
+        last_login_at: user.last_sign_in_at ?? null,
+        is_active: profile?.is_active ?? true,
+        is_admin: user.app_metadata?.role === 'admin',
+        is_self: user.id === currentAdmin.id,
+      };
+    }) }, status: 200 };
+  }
+
+  if (body.action === 'admin_update_user') {
+    const input = adminUpdateSchema.parse(body);
+    const { data: targetData, error: targetError } = await admin.auth.admin.getUserById(input.user_id);
+    if (targetError || !targetData.user) throw new HttpError(404, 'User not found.');
+    if (targetData.user.id === currentAdmin.id && (input.is_active === false || input.role === 'user')) {
+      throw new HttpError(400, 'You cannot remove your own administrator access.');
+    }
+    if (input.is_active !== undefined) {
+      const { error } = await admin.from('profiles').update({
+        is_active: input.is_active, updated_at: new Date().toISOString(),
+      }).eq('id', input.user_id);
+      if (error) throw error;
+    }
+    const { error: authError } = await admin.auth.admin.updateUserById(input.user_id, {
+      ...(input.is_active === undefined ? {} : { ban_duration: input.is_active ? 'none' : '876000h' }),
+      ...(input.role === undefined ? {} : { app_metadata: { ...targetData.user.app_metadata, role: input.role } }),
+    });
+    if (authError) throw authError;
+    return { body: { id: input.user_id, is_active: input.is_active, role: input.role }, status: 200 };
+  }
+
+  if (body.action === 'admin_list_activity') {
+    const input = adminActivitySchema.parse(body);
+    const offset = (input.page - 1) * input.page_size;
+    let query = admin.from('login_activity_admin').select('*', { count: 'exact' })
+      .order('created_at', { ascending: false }).order('id', { ascending: false })
+      .range(offset, offset + input.page_size - 1);
+    const term = input.search?.replace(/[,%()'"\\]/gu, '').slice(0, 200);
+    if (term) query = query.or(`display_name.ilike.%${term}%,email.ilike.%${term}%,attempted_email.ilike.%${term}%,ip_address.ilike.%${term}%`);
+    if (input.event_type) query = query.eq('event_type', input.event_type);
+    if (input.date_from) query = query.gte('created_at', `${input.date_from}T00:00:00.000Z`);
+    if (input.date_to) {
+      const end = new Date(`${input.date_to}T00:00:00.000Z`);
+      end.setUTCDate(end.getUTCDate() + 1);
+      query = query.lt('created_at', end.toISOString());
+    }
+    const { data, count, error } = await query;
+    if (error) throw error;
+    const total = count ?? 0;
+    return { body: { activities: data ?? [], pagination: {
+      page: input.page, page_size: input.page_size, total,
+      total_pages: Math.max(1, Math.ceil(total / input.page_size)),
+    } }, status: 200 };
+  }
+
+  if (body.action === 'admin_user_activity') {
+    const userId = z.string().uuid().parse(body.user_id);
+    const { data: user, error: userError } = await admin.from('profiles')
+      .select('id,email,display_name,registered_ip,registered_country,registered_city,registered_at')
+      .eq('id', userId).maybeSingle();
+    if (userError) throw userError;
+    if (!user) throw new HttpError(404, 'User not found.');
+    const { data: lastLogins, error: loginError } = await admin.from('login_activity_admin')
+      .select('created_at,ip_address,country,city,timezone,browser,operating_system,device_type')
+      .eq('user_id', userId).eq('event_type', 'login').eq('success', true)
+      .order('created_at', { ascending: false }).limit(1);
+    if (loginError) throw loginError;
+    const { data: activity, error: devicesError } = await admin.from('login_activity_admin')
+      .select('browser,operating_system,device_type,created_at').eq('user_id', userId)
+      .eq('success', true).order('created_at', { ascending: false }).limit(100);
+    if (devicesError) throw devicesError;
+    const seen = new Set<string>();
+    const recentDevices = (activity ?? []).flatMap((row) => {
+      const key = `${row.browser ?? ''}|${row.operating_system ?? ''}|${row.device_type ?? ''}`;
+      if (seen.has(key) || seen.size >= 5) return [];
+      seen.add(key);
+      return [{ browser: row.browser, operating_system: row.operating_system,
+        device_type: row.device_type, last_seen: row.created_at }];
+    });
+    return { body: { summary: { user, lastLogin: lastLogins?.[0] ?? null, recentDevices } }, status: 200 };
+  }
+
+  throw new HttpError(400, 'Unknown administrator action.');
+}
+
 async function connectorAction(request: Request, admin: SupabaseClient, body: Record<string, unknown>) {
   if (body.action === 'mt5_pair') {
     const input = z.object({ action: z.literal('mt5_pair'), pairing_code: z.string().min(32).max(128) }).strict().parse(body);
@@ -405,6 +662,10 @@ Deno.serve(async (request) => {
     const admin = adminClient();
     const result = body.action === 'register'
       ? await registration(request, admin, body)
+      : body.action === 'record_failed_login'
+        ? await failedLogin(request, admin, body)
+      : body.action.startsWith('admin_')
+        ? await adminAction(request, admin, body)
       : body.action.startsWith('mt5_')
         ? await connectorAction(request, admin, body)
         : await userAction(request, admin, body);

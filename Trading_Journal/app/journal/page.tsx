@@ -10,6 +10,8 @@ import { TradeLogPage } from '@/components/pages/trade-log';
 import { CalendarPage } from '@/components/pages/calendar';
 import { TradingAccountsPage } from '@/components/pages/trading-accounts';
 import { SettingsPage } from '@/components/pages/settings';
+import { AdminUsersPage } from '@/components/pages/admin-users';
+import { LoginActivityPage } from '@/components/pages/login-activity';
 
 export default function Journal() {
   const [view, setView] = useState<PageView>('dashboard');
@@ -57,7 +59,10 @@ export default function Journal() {
     if (view === 'trades') return <TradeLogPage journal={journal} />;
     if (view === 'calendar') return <CalendarPage journal={journal} />;
     if (view === 'accounts') return <TradingAccountsPage demoMode={journal.demoMode} authenticated={!!journal.user} />;
-    return <SettingsPage journal={journal} />;
+    if (view === 'settings') return <SettingsPage journal={journal} />;
+    if (view === 'admin' && journal.user?.app_metadata?.role === 'admin') return <AdminUsersPage />;
+    if (view === 'activity' && journal.user?.app_metadata?.role === 'admin') return <LoginActivityPage />;
+    return <DashboardPage journal={journal} />;
   }, [view, journal]);
 
   if (!journal.authReady || journal.loading || !journal.user) {
@@ -78,6 +83,7 @@ export default function Journal() {
         onChange={setView}
         onSignOut={journal.signOut}
         userLabel={journal.profile?.display_name ?? journal.profile?.username ?? journal.user.email}
+        isAdmin={journal.user.app_metadata?.role === 'admin'}
       />
       <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         {body}

@@ -24,6 +24,12 @@ export interface Profile {
   username: string | null;
   display_name: string | null;
   avatar_url: string | null;
+  country: string | null;
+  registered_ip?: string | null;
+  registered_country?: string | null;
+  registered_city?: string | null;
+  registered_at?: string | null;
+  is_active: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -44,6 +50,9 @@ export interface Trade {
   target_price: number | null;
   setup_notes: string | null;
   lessons_learned: string | null;
+  exit_reason?: string | null;
+  emotion_during_trade?: string | null;
+  emotions?: string[];
   created_at: string;
   updated_at: string;
   user_id?: string | null;
@@ -110,6 +119,9 @@ export interface TradeInput {
   target_price: number | null;
   setup_notes: string | null;
   lessons_learned: string | null;
+  exit_reason?: string | null;
+  emotion_during_trade?: string | null;
+  emotions?: string[];
 }
 
 export interface TradeCalc {

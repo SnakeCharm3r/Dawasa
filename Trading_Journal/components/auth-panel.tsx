@@ -3,7 +3,7 @@
 import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { KeyRound, LockKeyhole, Mail, UserRound } from 'lucide-react';
+import { Globe2, KeyRound, LockKeyhole, Mail, UserRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,17 +12,17 @@ type AuthMode = 'sign-in' | 'sign-up';
 
 type Props = {
   signInWithPassword: (email: string, password: string) => Promise<void>;
-  signUpWithPassword: (name: string, email: string, password: string) => Promise<{ requiresEmailConfirmation: boolean }>;
+  signUpWithPassword: (name: string, country: string, email: string, password: string) => Promise<{ requiresEmailConfirmation: boolean }>;
   signInWithGoogle: () => Promise<void>;
 };
 
 export function AuthPanel({
   signInWithPassword,
   signUpWithPassword,
-  signInWithGoogle,
 }: Props) {
   const [mode, setMode] = useState<AuthMode>('sign-in');
   const [name, setName] = useState('');
+  const [country, setCountry] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [message, setMessage] = useState<string | null>(null);
@@ -48,7 +48,7 @@ export function AuthPanel({
         await signInWithPassword(email, password);
         return;
       }
-      const result = await signUpWithPassword(name, email, password);
+      const result = await signUpWithPassword(name, country, email, password);
       if (result.requiresEmailConfirmation) {
         toast.success('Account created. Check your email to confirm it.');
         setMessage('Check your email to confirm your account, then sign in.');
@@ -92,22 +92,7 @@ export function AuthPanel({
         </button>
       </div>
 
-      <Button
-        type="button"
-        variant="outline"
-        className="mt-4 w-full"
-        disabled={loading}
-        onClick={() => run(signInWithGoogle)}
-      >
-        <span className="mr-2 flex h-5 w-5 items-center justify-center rounded-full bg-foreground text-xs font-bold text-background">G</span>
-        Continue with Google
-      </Button>
-
-      <div className="my-5 flex items-center gap-3 text-xs text-muted-foreground">
-        <div className="h-px flex-1 bg-border" /> or use email <div className="h-px flex-1 bg-border" />
-      </div>
-
-      <form className="space-y-4" onSubmit={submitPassword}>
+      <form className="mt-5 space-y-4" onSubmit={submitPassword}>
         {mode === 'sign-up' && (
           <div className="space-y-1.5">
             <Label htmlFor="auth-name">Name</Label>
@@ -123,6 +108,26 @@ export function AuthPanel({
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 placeholder="Your full name"
+                className="pl-9"
+              />
+            </div>
+          </div>
+        )}
+        {mode === 'sign-up' && (
+          <div className="space-y-1.5">
+            <Label htmlFor="auth-country">Country of origin</Label>
+            <div className="relative">
+              <Globe2 className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                id="auth-country"
+                type="text"
+                autoComplete="country-name"
+                required
+                minLength={2}
+                maxLength={100}
+                value={country}
+                onChange={(event) => setCountry(event.target.value)}
+                placeholder="e.g. Tanzania"
                 className="pl-9"
               />
             </div>

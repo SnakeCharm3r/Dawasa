@@ -14,6 +14,8 @@ const TRADE_FIELDS: (keyof Trade)[] = [
   'stop_loss',
   'target_price',
   'setup_notes',
+  'exit_reason',
+  'emotion_during_trade',
   'lessons_learned',
 ];
 
@@ -145,6 +147,8 @@ export function parsedRowToTradeInput(
     stop_loss: number | null;
     target_price: number | null;
     setup_notes: string | null;
+    exit_reason: string | null;
+    emotion_during_trade: string | null;
     lessons_learned: string | null;
   };
   warnings: string[];
@@ -191,6 +195,8 @@ export function parsedRowToTradeInput(
       stop_loss: num(row.stop_loss),
       target_price: num(row.target_price),
       setup_notes: String(row.setup_notes ?? '').trim() || null,
+      exit_reason: String(row.exit_reason ?? '').trim() || null,
+      emotion_during_trade: String(row.emotion_during_trade ?? '').trim() || null,
       lessons_learned: String(row.lessons_learned ?? '').trim() || null,
     },
     warnings,

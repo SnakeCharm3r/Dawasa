@@ -56,6 +56,8 @@ test('broker refresh fields cannot overwrite journal review fields', () => {
     'strategy',
     'setup_notes',
     'lessons_learned',
+    'exit_reason',
+    'emotion_during_trade',
     'screenshots',
     'tags',
     'emotions',

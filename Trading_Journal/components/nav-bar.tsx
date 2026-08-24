@@ -1,10 +1,10 @@
 'use client';
 
-import { LayoutDashboard, BookOpen, CalendarRange, Moon, Sun, LineChart, Settings, UserCog } from 'lucide-react';
+import { LayoutDashboard, BookOpen, CalendarRange, History, Moon, Sun, LineChart, Settings, ShieldCheck, UserCog } from 'lucide-react';
 import { useTheme } from '@/components/theme-provider';
 import { cn } from '@/lib/utils';
 
-export type PageView = 'dashboard' | 'trades' | 'calendar' | 'accounts' | 'settings';
+export type PageView = 'dashboard' | 'trades' | 'calendar' | 'accounts' | 'settings' | 'admin' | 'activity';
 
 const NAV_ITEMS: { id: PageView; label: string; icon: typeof LayoutDashboard }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -14,7 +14,7 @@ const NAV_ITEMS: { id: PageView; label: string; icon: typeof LayoutDashboard }[]
   { id: 'settings', label: 'Settings', icon: UserCog },
 ];
 
-export function NavBar({ view, onChange, onSignOut, userLabel }: { view: PageView; onChange: (v: PageView) => void; onSignOut?: () => void; userLabel?: string | null }) {
+export function NavBar({ view, onChange, onSignOut, userLabel, isAdmin = false }: { view: PageView; onChange: (v: PageView) => void; onSignOut?: () => void; userLabel?: string | null; isAdmin?: boolean }) {
   const { theme, toggle } = useTheme();
 
   return (
@@ -31,7 +31,10 @@ export function NavBar({ view, onChange, onSignOut, userLabel }: { view: PageVie
         </div>
 
         <nav className="flex items-center gap-1 rounded-lg bg-muted/60 p-1">
-          {NAV_ITEMS.map((item) => {
+          {[...NAV_ITEMS, ...(isAdmin ? [
+            { id: 'admin' as const, label: 'Admin', icon: ShieldCheck },
+            { id: 'activity' as const, label: 'Login Activity', icon: History },
+          ] : [])].map((item) => {
             const Icon = item.icon;
             const active = view === item.id;
             return (

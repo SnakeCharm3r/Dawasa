@@ -36,6 +36,7 @@ ln -s "$project_root/node_modules" "$stage_root/node_modules"
 (
   cd "$stage_root"
   NEXT_PUBLIC_SITE_URL='https://milanolodge.gt.tc' \
+  NEXT_PUBLIC_USE_SUPABASE_EDGE_API='true' \
   NEXT_PUBLIC_REQUIRE_EMAIL_CONFIRMATION='false' \
   INFINITYFREE_STATIC_EXPORT='true' \
   npm run build
@@ -44,7 +45,6 @@ ln -s "$project_root/node_modules" "$stage_root/node_modules"
 mkdir -p "$package_root/htdocs"
 rsync -a "$stage_root/out/" "$package_root/htdocs/"
 rsync -a "$project_root/deployment/infinityfree/static-files/" "$package_root/htdocs/"
-
 target="$project_root/deployment/infinityfree/htdocs"
 previous="$project_root/deployment/infinityfree/htdocs.previous"
 rm -rf "$previous"
@@ -54,6 +54,7 @@ rm -rf "$previous"
 
 (
   cd "$target"
+  rm -f "$project_root/deployment/infinityfree/milanolodge-htdocs.zip"
   zip -qr "$project_root/deployment/infinityfree/milanolodge-htdocs.zip" .
 )
 
